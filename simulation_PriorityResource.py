@@ -570,10 +570,9 @@ def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
     sat_vector_Topology_sorted = sorted(vector_Sat_Topology, key=lambda x: x[1])
     return sat_vector_Topology_sorted
 
-def create_topology_dome():
+def create_topology_dome(time = get_current_time()):
     
     global global_access_point
-    time = get_current_time()
 
     edge_servers = []
     acc_point ,satellites_dome, satellites_buffer = getAllSatOnMe(time = time)
@@ -634,9 +633,9 @@ if __name__ == "__main__":
     MaxTry = config["max_try"]  # Imposta il valore massimo di MaxTry
     total_time = 0  # Imposta il valore iniziale di total_time
 
-    #configurations = makeConfigurations()
-    #edge_servers = configurations[0]
-    edge_servers = create_topology_dome()
+    configurations = makeConfigurations()
+    edge_servers = configurations[0]
+    #edge_servers = create_topology_dome()
 
     initial_server_counter = {server.name: 0 for server in edge_servers}
     different_server_counter = {server.name: 0 for server in edge_servers}
