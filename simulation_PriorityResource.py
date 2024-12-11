@@ -573,6 +573,7 @@ def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
 def create_topology_dome():
     
     global global_access_point
+    time = get_current_time()
 
     edge_servers = []
     acc_point ,satellites_dome, satellites_buffer = getAllSatOnMe(time = time)
