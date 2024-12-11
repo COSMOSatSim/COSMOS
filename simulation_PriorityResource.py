@@ -247,7 +247,20 @@ def TaskAssignment(env, selected_server, task_id, required_cpu, required_ram, re
         start_time = env.now
         time_in_queue = start_time - arrival_time_task_queue
         # yield env.timeout(utilization_CPU) #deprecated
-        yield env.timeout(config["CPU_timeout"])  # msec
+
+        #esponenziale con media 15 per CPU timeout
+
+        # Valori presi dal file di configurazione (già in secondi)
+        mean_seconds = config["CPU_timeout"]["mean"]  # Ad esempio, 900
+        min_seconds = config["CPU_timeout"]["min"]  # Ad esempio, 600
+        max_seconds = config["CPU_timeout"]["max"]  # Ad esempio, 1500
+
+        yield env.timeout(experiments.truncated_exponential(mean=mean_seconds, lower=min_seconds, upper=max_seconds))
+
+        ####da generare 10 task al minuto############
+
+        #yield env.timeout(config["CPU_timeout"])  # msec
+
         end_time = env.now
         execution_time = (end_time - start_time)
         service_time = execution_time + time_in_queue + transfer_time
@@ -376,14 +389,25 @@ def SearchNode(env, server_selected, task_id, required_cpu, required_ram, requir
     logging.debug(f'hop eseguiti = {hop}, server totali rimasti con utility = {len(sorted_servers)}')
     original_TaskPriority = task_priority
 
+    print(initial_server_counter)
+    print(server_selected.name)
+    #print(f"Server: {server_selected.name}, Present: {server_selected.name in different_server_counter}")
+
+    #initial_server_counter tiene traccia di quante volte ogni server è stato utilizzato, e il suo scopo principale è monitorare la distribuzione dei task e facilitare l'analisi del sistema.
+    if server_selected.name not in initial_server_counter:
+        initial_server_counter[server_selected.name] = 0  # Aggiungi il server con valore iniziale 0
     initial_server_counter[server_selected.name] += 1
 
     if len(sorted_servers) > 0:
         server = sorted_servers.pop(0)
 
         if server != server_selected:
+            if server_selected.name not in different_server_counter:
+                different_server_counter[server_selected.name] = 0  # Aggiungi il server con valore iniziale di 0
             different_server_counter[server_selected.name] += 1
-            other_server_counter[server.name] += 1
+            if server_selected.name not in other_server_counter:
+                other_server_counter[server_selected.name] = 0  # Aggiungi il server con valore iniziale 0
+            other_server_counter[server_selected.name] += 1
             hop += 1
 
         logging.debug(f'Seleziono il server con utility più bassa: {server.name}')
@@ -471,12 +495,11 @@ def task(env, task_id, server, task_priority):
     Volume_size = random.uniform(config["Volume_size"]["min"], config["Volume_size"]["max"])  # Genera casualmente la dimensione dell'Volume con media di 1 GB ###cercare quali distributioni caratterizzano tipicamente la dimensione delle immagini dei container
 
     utilization_CPU = MI / (config["cpu_capacity"] * required_cpu)  #MI/(limits × C_i^max )
-    #utilization_CPU = #MI / (config["cpu_capacity"] * required_cpu)  #MI/(limits × C_i^max )
 
     restart_time = random.uniform(config["restart_time"]["min"], config["restart_time"]["max"])  # Tempo di riavvio del task (ad esempio, in secondi)
     download_time = 0 #image_size / available_bandwidth
     arrival_time_system = env.now
-    print(f"---> Task {task_id} (Priority: {task_priority}) arriva in {arrival_time_system:.2f}")
+    print(f"---> Task {task_id} (Priority: {task_priority}) arriva in {arrival_time_system:.2f} secondi, cioè {arrival_time_system/60} minutes.")
     logging.debug(f"---> Task {task_id} (Priority: {task_priority}) arriva in {arrival_time_system:.2f}")
 
     yield from LocalScheduler(task_id, required_cpu, required_ram, required_disk, server, image_size, Volume_size, restart_time, download_time, task_priority, arrival_time_system, utilization_CPU)
@@ -545,12 +568,6 @@ def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
     sat_vector_Topology_sorted = sorted(vector_Sat_Topology, key=lambda x: x[1])
     return sat_vector_Topology_sorted
 
-#Richiamiamo questa funzione periodicamente per aggiornare la topologia
-def periodic_Recall():
-    global edge_servers
-    time.sleep(config["topology_sleeping_time"] * 60)
-    edge_servers = create_topology_dome()
-
 def create_topology_dome():
     
     global global_access_point
@@ -601,11 +618,6 @@ if __name__ == "__main__":
     initial_server_counter = {server.name: 0 for server in edge_servers}
     different_server_counter = {server.name: 0 for server in edge_servers}
     other_server_counter = {server.name: 0 for server in edge_servers}
-
-    #Gestione del Thread per la creazione della topologia Periodicamente
-    thread = threading.Thread(target=periodic_Recall)
-    thread.daemon = True 
-    thread.start()
 
     env.process(generate_tasks(env))
 
