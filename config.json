@@ -75,6 +75,11 @@
         "lon": 12.4822,
         "alt": 0
     },
+    "Oslo": {
+        "lat": 59.9114,
+        "lon": 10.7579,
+        "alt": 0
+    },
     "Polo Nord": {
         "lat": 90.0,
         "lon": 135.0,
@@ -83,7 +88,7 @@
   },
   "LEO_orbit": 300,
   "Phi_max": 40,
-  "Phi_buffer": 15,
+  "Phi_buffer": 10,
   "topology_sleeping_time": 2,
   "Laser_Comunication_Range": 659
 }

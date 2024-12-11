@@ -1,5 +1,6 @@
 import json
 from math import sqrt
+import math
 import numpy as np
 import sys
 from datetime import timedelta
@@ -132,6 +133,87 @@ def getLatency(distance:float):
 
     return distance_m / LIGHT_SPEED  # Calculate latency in seconds
 
+def getOrbitalPeriod(h):
+    """
+    Calculate the orbital period of an object in low Earth orbit.
+
+    Parameters:
+    h (float): Altitude of the orbit above Earth's surface in meters.
+
+    Returns:
+    float: Orbital period in seconds.
+
+    Notes:
+    - The function assumes a circular orbit.
+    - The Earth's radius and gravitational parameters are hardcoded.
+    """
+
+    R_Earth = 6_371_000  # Average radius of the Earth in meters
+    G = 6.67430e-11      # Gravitational constant in m^3 kg^-1 s^-2
+    M = 5.972e24         # Mass of the Earth in kg
+    mu = G * M           # Gravitational parameter
+
+    # Calculate the orbital period
+    T_0 = 2 * math.pi * math.sqrt(((R_Earth + h)**3) / mu)
+    return T_0
+
+def getDeltaAngle(Phi_s, Phi_max, Delta_s):
+    """
+    Calculate the entry angle based on given parameters.
+
+    This function computes the entry angle using the provided angles Phi_s, Phi_max, and Delta_s.
+    The calculation is based on the formula:
+    entry_angle = asin((sin(Phi_s) / sin(Phi_max)) * sin(Delta_s))
+
+    Parameters:
+    Phi_s (float): The starting angle in degrees.
+    Phi_max (float): The maximum angle in degrees.
+    Delta_s (float): The delta angle in degrees.
+
+    Returns:
+    float: The calculated entry angle in radians.
+    """
+    return math.asin((math.sin( math.radians(Phi_s)) / math.sin(math.radians(Phi_max))) * math.sin(math.radians(Delta_s))) 
+
+def satellite_altitude(position):
+    """
+    Calculate the altitude of a satellite above the Earth's surface.
+
+    Args:
+        position (list or array): The position of the satellite in kilometers.
+
+    Returns:
+        float: The altitude of the satellite above the Earth's surface in meters.
+    """
+
+    R_Earth = 6_371_000  # Average radius of the Earth in meters
+    
+    # Convert the position to meters
+    position_meters = np.array(position) * 1000
+
+    distance_from_earth_center = np.linalg.norm(position_meters)    # Calculate the distance from the center of the Earth
+    altitude_above_ground = distance_from_earth_center - R_Earth    # Calculate the altitude above the Earth's surface
+    
+    return altitude_above_ground
+
+
+
+def get_T_p(satellite, Phi_s, time = time_now):
+    
+    Phi_max = config["Phi_max"]         #! Phi_Max (gradi)
+    Delta_s = satellite.model.inclo     #! Delta_s (gradi)
+
+    delta = getDeltaAngle(Phi_s, Phi_max, Delta_s)  # Entry angle in Dome
+
+    geo_Sys = getSystemFromSat(satellite, Geocentric = True, time = time)       # Geocentric System
+    position = geo_Sys.position.km
+
+    sat_h = satellite_altitude(position)
+    T_o = getOrbitalPeriod(sat_h)                                              # Orbital Period
+
+    T_p = (T_o * math.atan( math.cos(delta) * math.tan(math.radians(Phi_max)))) / math.pi  # Time of Passage in seconds
+    return T_p, math.degrees(delta)
+
 # ---------------------------------------------------------------------------- #
 #                                    Filter                                    #
 # ---------------------------------------------------------------------------- #
@@ -153,84 +235,133 @@ def filterSatellitesInView(satellite):
     return True if v_rel < 0 else False
 
 # ---------------------------------------------------------------------------- #
-def getAllSatOnMe(Phi_max = config["Phi_max"], time = time_now, Num_Access_point = config["access_point"]):    
+def getAllSatOnMe(Phi_max=config["Phi_max"], time=time_now, Num_Access_point=config["access_point"]):
+    """
+    Retrieves all satellites within the observer's dome and buffer zone based on the given parameters.
+    Args:
+        Phi_max (float): Maximum angle for the dome in degrees. Defaults to config["Phi_max"].
+        time (datetime): The current time for satellite position calculations. Defaults to time_now.
+        Num_Access_point (int): Number of access points required. Defaults to config["access_point"].
+    Returns:
+        tuple: A tuple containing:
+            - acc_points (list): List of tuples with satellites and their distances that are access points.
+            - dome (list): List of tuples with satellites and their distances within the dome but not access points.
+            - sat_sort_buff (list): List of tuples with satellites and their distances within the buffer zone.
+    """
     
     buffer_Phi = Phi_max - config["Phi_buffer"]             # Angle of a Buffer Zone
     satellites_dome, satellites_buffer = [], []             
     tle_data = TLE_DATA
 
-    # Prendo tutti i satelliti nella mia Cupola e BufferZone
+    # Get all satellites within the observer's dome and buffer zone
     for i in range(0, len(tle_data), 3):
         name = tle_data[i].strip()
         line1 = tle_data[i + 1].strip()
         line2 = tle_data[i + 2].strip()
 
-        satellite = EarthSatellite(line1, line2, name, ts)  # Converting tle Data in SGP4 Satellite Object
-        sys = getSystemFromSat(satellite, time = time)      # reference system 
+        satellite = EarthSatellite(line1, line2, name, ts)  # Converting TLE data into SGP4 Satellite Object
+        sys = getSystemFromSat(satellite, time=time)        # Reference system 
         
-        alt, az, distance = sys.altaz()                     # alt : Altitude in degrees relative to the observer
-                                                            # az : Sat Azimuth Angle relative to the observer
-                                                            # distance: distance Sat - Observer
+        alt, az, distance = sys.altaz()                     # alt: Altitude in degrees relative to the observer
+                                                            # az: Satellite Azimuth Angle relative to the observer
+                                                            # distance: Distance between Satellite and Observer
         if alt.degrees > buffer_Phi:
             if alt.degrees > Phi_max:
                 satellites_dome.append((satellite, distance.km))
             else:
-                # Controllo che stia venendo nella mia direzione
+                # Check if the satellite is coming in our direction
                 if filterSatellitesInView(satellite):
                     satellites_buffer.append((satellite, distance.km))
 
-    #Ordino i satelliti in base alla posizione rispetto all'utente
+    # Sort satellites based on their position relative to the observer
     sat_sort_dome, sat_sort_buff = sorted(satellites_dome, key=lambda x: x[1]), sorted(satellites_buffer, key=lambda x: x[1])
     
     counter, acc_points, dome = 0, [], []
     if Num_Access_point > len(sat_sort_dome):
-        Num_Access_point = len(sat_sort_dome) // 2   # Non ci sono abbastanza satelliti da soddisfare la richiesta di Access_point 
+        Num_Access_point = len(sat_sort_dome) // 2   # Not enough satellites to satisfy the access point request
     
-    #Determino Access Points
+    # Determine Access Points
     for s in sat_sort_dome:
         if counter < Num_Access_point and filterSatellitesInView(s[0]):
             acc_points.append((s[0], s[1]))
-            counter+=1
+            counter += 1
         else:
             dome.append((s[0], s[1]))
     
     return acc_points, dome, sat_sort_buff
 
-
-def classifySat_BufferZone(buffer_satellites, time = time_now):
-    time_end = ts.utc(time.utc_datetime() + timedelta(minutes=40))
-    selected_satellites = []
-
-    min_elev_cone = 90 - config["Phi_max"]   # Quantità di gradi al di sotto della soglia dove osservo.
-    buffer_Phi = config["Phi_max"] - config["Phi_buffer"]             # Angle of a Buffer Zone
-
-    for s in buffer_satellites:
-        # Calcolo eventi di passaggio
-        t, events = s[0].find_events(OBSERVER, time, time_end, altitude_degrees=buffer_Phi)
-        max_elevation = 0                   # ? Masimo punto di elevazione del satellite
-
-        for ti, event in zip(t, events):
-            if event == 1:  # Max Alt
-
-                syst = getSystemFromSat(s[0], time = time)      # reference system 
-                alt, az, distance = syst.altaz() 
-
-                max_elevation = alt.degrees  # Elevazione in gradi
-                break
-        print(f"SAT: {s[0].name} - Elevation: {max_elevation} >= {min_elev_cone}") 
-        # Verifica se il satellite raggiunge almeno la soglia del cono di osservazione
-        if max_elevation >= min_elev_cone :
-            selected_satellites.append((s[0], s[1], max_elevation))
+# TODO : Implementa la funazione per capire chi è il miglior satellite che sta per entrare nella cupola
+def findOptimalSatellite():
+    tle_data = TLE_DATA
+    buffer_Phi = config["Phi_max"] - config["Phi_buffer"]       # Angle of a Buffer Zone
+    Phi_max = config["Phi_max"]
+    satellites = []
     
-    return selected_satellites
+    # $ Trova tutti i satelliti sopra di me
+    for i in range(0, len(tle_data), 3):
+        name = tle_data[i].strip()
+        line1 = tle_data[i + 1].strip()
+        line2 = tle_data[i + 2].strip()
 
+        satellite = EarthSatellite(line1, line2, name, ts)      # Converting tle Data in SGP4 Satellite Object
+        sys = getSystemFromSat(satellite)                       
+        alt, az, distance = sys.altaz()  
 
+        if alt.degrees < Phi_max and alt.degrees > buffer_Phi and filterSatellitesInView(satellite):      
+            # $ Calcola la lunghezza dell'arco di percorrenza nella cupola per ogni satellite
+            t_0, angle = get_T_p(satellite, alt.degrees)
 
+            print(f"Satellite: {name} Distance: {distance.km} Phi_s :{alt.degrees} Entry_Angle: {angle} Time in Dome: {t_0 / 60} min")
+            #satellites.append((name, distance.km, angle, t_0))
+            #print(f"Satellite: {name} Distance: {distance.km} Entry_Angle: {angle} Time in Dome: {t_0 / 60} min")
+            # $ Calcola il tempo che ci impiega ogni satellite a raggiungere LOS dato l'arco di percorrenza
+            # $ Esegui un ordinamento di questi satelliti per trovare quello che ci mette di più
+    
+    #sorted_sat = sorted(satellites, key=lambda x: x[1])
+    #[print(f"Satellite: {name} Distance: {distance} Entry_Angle: {angle} Time in Dome: {t_0 / 60} min") for name, distance, angle, t_0 in sorted_sat]
+# TODO Controlla che il tempo fornito sopra sia lo stesso generato attraverso il find_events (DOPO PRANZO)
 
-
-
+#findOptimalSatellite()
 # ---------------------------------------------------------------------------- #
 
+
+def update_time(t_base, t_delta):
+    """
+    Update Skyfield Time object by adding minutes.
+
+    Args:
+        t_base (skyfield.timelib.Time): Base time from ts.now()
+        t_delta (int/float): Minutes to add
+
+    Returns:
+        skyfield.timelib.Time: Updated time
+    """
+    current_datetime = t_base.utc_datetime()
+    new_datetime = current_datetime + timedelta(minutes=t_delta)
+    return ts.from_datetime(new_datetime)
+
+
+
+
+def makeConfigurations(i = time_now, interval = 2, config = 5):
+    # ! genera config nel tempo i -> i+interval 
+    temp_time = i 
+    for z in range(0, config):
+        print(f"Configurazione {z} al tempo {temp_time.utc_datetime()}")
+        #acc_points, dome, sat_sort_buff = getAllSatOnMe(time = temp_time)
+        # Crea topologia
+
+
+        #Ti raccomando aggiorna i vicini
+        #printSatList(acc_points, dome, sat_sort_buff)
+        print("-"*20)
+        
+        temp_time = ts.utc(temp_time.utc_datetime() + timedelta(minutes=interval))
+
+    # ! Salva config dc 
+
+#makeConfigurations()
+# ---------------------------------------------------------------------------- #
 def check_satellite_visibility(satellite, location, start, end):
     # Intervallo di tempo con step di 1 minuto
     times = ts.utc_range(start.utc_datetime(), end.utc_datetime(), timedelta(minutes=1))
@@ -253,8 +384,7 @@ def checkConsistency():
     tle_data = TLE_DATA
     satellites = []
     t0 = time_now
-
-    location = wgs84.latlon(41.9028, 12.4964)  # Roma
+    t1 = ts.utc(t0.utc_datetime() + timedelta(minutes=5))
 
 
     #Genero la lista di Satelliti
@@ -264,6 +394,45 @@ def checkConsistency():
         line2 = tle_data[i + 2].strip()
 
         satellite = EarthSatellite(line1, line2, name, ts)
-        # TODO ricordati di effettuare il controllo della consistenza
+        syst = getSystemFromSat(satellite)
+        alt, az, distance = syst.altaz()
+
+        #Prendo i satelliti che sono sopra l'orizzonte
+        if alt.degrees > 0:
+            satellites.append(satellite)
+    
+    #Controllo ora tutti i satelliti sull'orizzonte e vedo quelli che stanno venendo nella mia direzione
+    print("Satellite in a 1 minute check: \n")
+    satellites_events = []
+    for sat in satellites:
+        t, events = sat.find_events(OBSERVER, t0, t1, altitude_degrees=40)
+        for ti, event in zip(t, events):
+            syst = getSystemFromSat(sat, time=ti)
+            alt, az, distance = syst.altaz()
+            if event == 1:
+                #print(f"SAT: {sat.name} - Max Elevation: {alt.degrees} - Distance: {distance.km}")
+                #print(f"SAT:{sat.name} - Max Elevation: {alt.degrees} at {ti.utc_iso()}")
+                satellites_events.append((sat, alt, distance.km, ti.utc_iso()))
+    
+    sorted(satellites_events, key=lambda x: x[2])
+    [print(f"SAT: {sat.name} - Max Elevation: {alt.degrees} - Distance: {distance} al tempo {t} / {t0.utc_datetime()}") for sat, alt, distance, t in satellites_events]
+    print("-"*20)
+    print("Satellite now: \n")
+    
+    
+    # Troviamo i satelliti che sono sopra di noi ora
+    sat_now = []
+    for s in satellites:
+        syst = getSystemFromSat(s, time = t0)
+        alt, az, distance = syst.altaz()
+        if alt.degrees > 40:
+            #print(f"SAT: {s.name} - Actual Elevation: {alt.degrees} - Distance: {distance.km}")
+            sat_now.append((s, alt, distance.km))
+    sorted(sat_now, key=lambda x: x[2])
+    [print(f"SAT: {sat.name} - Max Elevation: {alt.degrees} - Distance: {distance}") for sat, alt, distance in sat_now]
+
+#checkConsistency()
+
+
 
     

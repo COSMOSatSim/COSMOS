@@ -7,10 +7,12 @@ import time
 import logging
 import threading
 from skyfield.api import EarthSatellite
+import copy
+import sys
 
 import experiments
 from SaveCurrentSATOnFile import saveTLEOnFile
-from user_based_topology import get_orbit_proximity, get_current_time, getLatency, are_satellites_equal, getAllSatOnMe, printSatList
+from user_based_topology import get_orbit_proximity, get_current_time, getLatency, are_satellites_equal, getAllSatOnMe, printSatList, update_time
 
 
 
@@ -114,7 +116,6 @@ class EdgeServer:
         '''
         return self.bandwidth.get(neighbor_server, None)
     
-
 
     def __str__(self):
         return f"Satellite : (nome={self.name}) neighbor: ({self.neighbors})\n"
@@ -572,7 +573,6 @@ def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
 def create_topology_dome():
     
     global global_access_point
-    time = get_current_time()
 
     edge_servers = []
     acc_point ,satellites_dome, satellites_buffer = getAllSatOnMe(time = time)
@@ -605,6 +605,24 @@ def create_topology_dome():
         #print(current_server.name)
     return edge_servers
 
+
+def makeConfigurations(i = get_current_time(), interval = 2, config = 5):
+    temp_time = i
+    configs = []
+
+    for z in range(0, config):
+        print(f"Configurazione {z} al tempo {temp_time.utc_datetime()}")
+
+        # Build Configurations
+        configuration = create_topology_dome(time = get_current_time())
+        configs.append(configuration)
+
+        print("-"*20)
+        temp_time = update_time(temp_time, interval)
+
+    return configs
+
+
 if __name__ == "__main__":
 
     # Setup and start the simulation
@@ -614,6 +632,9 @@ if __name__ == "__main__":
     hop = 0  # Inizializza la variabile hop a zero
     MaxTry = config["max_try"]  # Imposta il valore massimo di MaxTry
     total_time = 0  # Imposta il valore iniziale di total_time
+
+    #configurations = makeConfigurations()
+    #edge_servers = configurations[0]
     edge_servers = create_topology_dome()
 
     initial_server_counter = {server.name: 0 for server in edge_servers}
