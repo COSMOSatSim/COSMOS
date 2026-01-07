@@ -1,3 +1,22 @@
+"""
+Observer management and utility functions for task and position handling.
+
+This module provides:
+
+1. `Observer` class:
+   - Represents the simulation observer, tracking tasks, packets, and OGM
+     history.
+   - Provides methods to retrieve geolocation and projected 3D position
+     vectors.
+   - Supports printing task summaries in a formatted table.
+
+2. `ObserverMeta` singleton metaclass:
+   - Ensures only one Observer instance exists at a time.
+
+3. Utility functions:
+   - `format_mb`: formats memory values (MB/GB) for display purposes.
+"""
+
 import globals
 from collections import OrderedDict
 from skyfield.api import wgs84
@@ -67,16 +86,16 @@ class Observer(metaclass = ObserverMeta):
     
     def getPositionVector(self, t):
         """
-        Questa funzione ritorna un vettore in 3 dimensioni,
-        della posizione dell'observer proiettato nello spazio.
+        Return a 3D position vector [x,y,z] in km at time t
+        :param t: skyfield time object
+        :return: list of [x, y, z] in km
         """
-
         return self.getLocation(altitude = 0).at(t).position.km.tolist()
     
 
     def print_task_summary(self):
         """
-        Stampa un riassunto formattato dei task arrivati con successo all'Observer
+        Stamp a summary table of tasks arrived at the observer.
         """
         print(f"TASK ARRIVATI CON SUCCESSO ALL'OBS: {len(self.tasks)}:\n")
         print(" id     | weight        | resolution    | Start Routing (s) | End Routing (s) | duration      | hop |")

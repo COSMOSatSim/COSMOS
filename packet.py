@@ -1,4 +1,14 @@
 
+"""
+Definition of packet-related classes and enums for network simulation.
+Used in DSR-like routing protocols.
+
+This module provides:
+1. `Mode` enum: defines the type of packet operation (e.g., route discovery, route reply).
+2. `Packet` class: represents packets exchanged between nodes in the network,
+   tracking source, destination, visited nodes, hop history, and allowing
+   safe duplication for forwarding or simulation purposes.
+"""
 from enum import Enum
 
 class Mode(Enum):
@@ -9,7 +19,6 @@ class Mode(Enum):
     
     def __str__(self):
         return self.name
-
 
 class Packet:
 
