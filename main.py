@@ -88,6 +88,9 @@ if __name__ == "__main__":
 
         configurations_base, configuration_optimal = None, None
 
+        # TODO : Cambiare il nome di questo parametro 'load_saved_configuration' è ambiguo.
+        # TODO : Lo usiamo solo per costruire entrambe le configurazioni (BASE e OPTIMAL)
+        # TODO : DObbiamo migliorare la logica. Comunque noi le carichiamo entrambe (nell'else) ma solo se dobbiamo redistribuire gli OGM
         if not config.get("load_saved_configuration"):
             tle_data = saveTLEOnFile()
             t0 = get_current_time()

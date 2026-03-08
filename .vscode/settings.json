@@ -1,0 +1,4 @@
+{
+    "python.defaultInterpreterPath": "/home/vinz/.venv/SECMotionModel_env/bin/python",
+    "python.terminal.activateEnvInSelectedTerminal": true
+}
