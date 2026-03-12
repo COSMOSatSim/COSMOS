@@ -14,8 +14,7 @@ import globals
 import json, json5
 from  Observer import Observer 
 from user_based_topology import getObserverObj
-from topology import distribute_ogm, loadConfiguration, loadConfiguration_simple
-from routing_Manager import periodic_recall_Routing_monitor
+from topology import distribute_ogm
 
 import time
 

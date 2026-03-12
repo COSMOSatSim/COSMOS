@@ -10,7 +10,7 @@ import ILP_simulation, simulation
 from Task import findAlgorithm, generate_Tasks_Status, convert_task_list_in_dict
 from simulation import generate_tasks
 from topology import build_configurations, get_global_mode, load_saved_configuration, loadConfiguration, \
-    periodic_recall_Topology_monitor, string_to_skyfield_time, loadConfiguration_simple
+    periodic_recall_Topology_monitor, string_to_skyfield_time
 from user_based_topology import get_current_time, getObserverObj
 from SaveCurrentSATOnFile import saveTLEOnFile
 from routing_Manager import load_saved_OGM, periodic_recall_Routing_monitor
@@ -88,22 +88,17 @@ if __name__ == "__main__":
 
         configurations_base, configuration_optimal = None, None
 
-        # TODO : Cambiare il nome di questo parametro 'load_saved_configuration' è ambiguo.
-        # TODO : Lo usiamo solo per costruire entrambe le configurazioni (BASE e OPTIMAL)
-        # TODO : DObbiamo migliorare la logica. Comunque noi le carichiamo entrambe (nell'else) ma solo se dobbiamo redistribuire gli OGM
-        if not config.get("load_saved_configuration"):
-            tle_data = saveTLEOnFile()
-            t0 = get_current_time()
-            configurations_base = build_configurations(t0, tle_data, AccPointMode.BASE)
-            configuration_optimal = build_configurations(t0, tle_data, AccPointMode.OPTIMAL)
-        else:
-            # FASE TEST : Se abbiamo già creato le configurazioni le carichiamo
-            configurations_base = load_saved_configuration(AccPointMode.BASE)
-            configuration_optimal = load_saved_configuration(AccPointMode.OPTIMAL)
-
+        # Costruzione delle configurazioni
+        tle_data = saveTLEOnFile()
+        t0 = get_current_time()
+        configurations_base = build_configurations(t0, tle_data, AccPointMode.BASE)
+        configuration_optimal = build_configurations(t0, tle_data, AccPointMode.OPTIMAL)
+        
+        # Costruzione delle OGM table
         if config["redistribuite_OGM"]:
             process_OGM_enviroment_simulation(configurations_base)
-            remove_first_30_configurations(AccPointMode.BASE)
+            # Pulizia configurazioni di riempimento
+            remove_first_30_configurations(AccPointMode.BASE)   
             remove_first_30_configurations(AccPointMode.OPTIMAL)
 
         sys.exit("File of configurations created")
@@ -112,19 +107,13 @@ if __name__ == "__main__":
     if config.get("Load_Configuration", False):
         mode = get_global_mode()  # Otteniamo la Modalità di simulazione
         r_algo = findAlgorithm()
-        simple_exec = True
-
-        globals.data_configurations = load_saved_configuration(mode)
+        
+        globals.data_configurations = load_saved_configuration(mode)    # Carichiamo le configurazioni in base alla modalità
 
         if r_algo == "BATMAN" or r_algo == "DINAMICO":
-            # Se l'algoritmo richiede le OGM TABLE
-            globals.OGMs_tables = load_saved_OGM()
-            globals.edge_servers, globals.global_access_point = loadConfiguration(env, globals.data_configurations,
-                                                                                  globals.OGMs_tables)
-        else:
-            globals.edge_servers, globals.global_access_point = loadConfiguration_simple(env,
-                                                                                         globals.data_configurations)
-
+            globals.OGMs_tables = load_saved_OGM()  # Carico le OGM Table
+        
+        globals.edge_servers, globals.global_access_point = loadConfiguration(env, globals.data_configurations, globals.OGMs_tables)  # Carico la topologia in base alla modalità
         env.process(periodic_recall_Topology_monitor(env, globals.data_configurations, globals.OGMs_tables))
     else:
         sys.exit("Nessuna Configurazione richiesta!")

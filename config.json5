@@ -83,8 +83,8 @@
   Phi_buffer: 15,
   Laser_Communication_Range: 659,
   Build_Configurations: false,
-  load_saved_configuration: false,
-  redistribuite_OGM: false,
+  load_saved_configuration: true,
+  redistribuite_OGM: true,
   Load_Configuration: true,
   Interval_between_Configurations_in_seconds: 2,
   Number_of_Configurations: 45,
@@ -95,8 +95,8 @@
   AP_routing_bidirectional: true,
   Routing_Interval: 0.5,
   Routing_algorithm: {
-    BATMAN: false,
-    GREEDY: true,
+    BATMAN: true,
+    GREEDY: false,
     DSR: false,
   },
   ilp_weights: {

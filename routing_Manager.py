@@ -52,6 +52,7 @@ def load_saved_OGM():
             ogm_data = json.load(f)
     except Exception as e:
         sys.exit(colorize(f"[ERROR] Caricamento OGM table fallito: {e}", "red"))
+    print(colorize("[LOAD] OGM table caricata con successo.\n", "green"))
     return ogm_data
 
 def manage_ogm_test(ogm_map, t):

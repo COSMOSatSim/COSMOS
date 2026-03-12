@@ -157,6 +157,17 @@ def print_progress_bar(current_step, total_steps, bar_width=40, prefix="Avanzame
     print(f"\r{prefix}: {bar} {current_step}/{total_steps} ({percent:5.1f}%)", end="", flush=True)
 
 def load_saved_configuration(mode:AccPointMode) -> GenConfigsOutput:
+    """
+    >> FUNZIONE DI TEST <<
+    Funzione che carica le configurazioni salvate nei rispettivi file json.
+    Usata nel main per evitare di ricostruire le configurazioni, solo nel caso in cui
+    dobbiamo costruire anche le OGM Table.
+
+    Args:
+        mode (AccPointMode) : Modalità Configurazioni
+    Return:
+        configuration (GenConfigsOutput) : Oggetto Configurazione nel formato atteso.
+    """
     path = f"data/configurations_AP_{mode}.json"
     configuration = None
     print(colorize(f"[LOAD] Caricamento configurazione <{mode}>...", "yellow"))
@@ -295,11 +306,8 @@ def periodic_recall_Topology_monitor(env, data_configurations, OGMs_tables):
         print(f"\t||TIME IN SIMULATION : (seconds:{env.now}) (minutes: {env.now // 60}) ||\n")
         print("MODIFICA CONFIGURAZIONE IN CORSO...\n")
         
-        if OGMs_tables:
-            new_edge_servers, new_global_access_point = loadConfiguration(env, data_configurations, OGMs_tables)
-        else:
-            new_edge_servers, new_global_access_point = loadConfiguration_simple(env, data_configurations)
-            
+        new_edge_servers, new_global_access_point = loadConfiguration(env, data_configurations, OGMs_tables)
+        
         # ! Aggiorno le Globali
         with lock:
             globals.global_access_point = new_global_access_point
@@ -311,7 +319,8 @@ def periodic_recall_Topology_monitor(env, data_configurations, OGMs_tables):
 
 
 def distribute_ogm(env, data_configuration, config_riempimento):
-    
+    OGMs_table = None  # Procedo a costruirle. Quindi le imposto come None
+
     while True:
         # Avvisa quando si è sull'ultimo elemento della configurazione
         if globals.config_index >= len(data_configuration["configurations"]) - 1:
@@ -319,7 +328,7 @@ def distribute_ogm(env, data_configuration, config_riempimento):
         else:
             print(f"---Caricamento configurazione index {globals.config_index}")
 
-        new_edge_servers, new_global_access_point = loadConfiguration_simple(env, data_configuration)  # Carica la configurazione
+        new_edge_servers, new_global_access_point = loadConfiguration(env, data_configuration, OGMs_table)  # Carica la configurazione
         
         with lock:
             globals.global_access_point = new_global_access_point
@@ -472,128 +481,35 @@ def update_servers_neighbors(servers_dict, neighbors_SAT):
         server.update_neighbors(hop_neighbors, latency, bandwidth)
 
     return servers_dict
-def loadConfiguration_simple(env, data_configurations):
-    """
-    Funzione identica a loadConfiguration ma non ha dipendenze dai file degli OGM_table e positions_Vectors.
-    Costruisce le configurazioni satellitari usando solamente il file 'configurations.json'
-    """
-    global_access_point = []    # futuri acc_points
-    if globals.config_index > 0:
-        #print("#" * 30)
-        configuration = data_configurations["configurations"][globals.config_index]
-    
-        globals.ist_in_conf = string_to_skyfield_time(configuration["time"])
-
-        print("Aggiornato il Tempo Globale: ", globals.ist_in_conf.utc_strftime('%Y-%m-%d %H:%M:%S'))
-        #print(f'Conf: {globals.config_index} | time : {configuration["time"]}')
-
-        # Costruisci i nuovi server dalla configurazione
-        new_servers, new_neighbors, acc_point = build_EdgeServer_from_config(env, configuration)
-
-        # Aggiorna i server esistenti o aggiunge nuovi server se non presenti.
-        intersection, old_edge_servers, new_edge_servers = update_servers(new_servers, acc_point)
-
-        server = {**intersection, **new_edge_servers}
-        
-        update_counters_dictionary(server, globals.initial_server_counter,
-                                   globals.different_server_counter, globals.other_server_counter)  # Aggiorno i dizionari dei nuovi aggiunti
-
-        # Stampa per debug
-        #print(f"Configurazione aggiornata. Totale server: {len({**intersection, **new_edge_servers, **old_edge_servers})}")
-
-        # Aggiorno i vicini
-        servers_in_dome_updated = update_servers_neighbors({**intersection, **new_edge_servers},
-                                                           new_neighbors)  # Aggiorno i vicini per i server nell'intersection e i nuovi aggiunti
-        # Pulisco i dizionari che riguardano i vicini dei server tramontati
-        for server in old_edge_servers.values():
-            server.update_neighbors({}, {}, {})
-            server.elev_angle = 0
-
-        with globals.lock_access_edge_servers_topology:
-            # Salvo solo i satelliti che appartengono alla topologia
-            globals.edge_servers_topology = list(servers_in_dome_updated.values())
-
-        new_edge_servers = list(servers_in_dome_updated.values()) + list(old_edge_servers.values())
-
-        #Trovo i nuovi acc_points
-        counter_acc_found = 0
-        for server in new_edge_servers:
-            if counter_acc_found < config["access_point"]:
-                if server.is_acc_point:
-                    #print()
-                    global_access_point.append(server)
-                    counter_acc_found += 1
-            else:
-                break
-
-        # Incrementa l'indice di configurazione
-        # if globals.config_index > config["Number_of_Configurations"] - 1:
-        #     print("(!) Hai finito le configurazioni")
-        #     print(f"CONFIGURAZIONE elaborata {globals.config_index}")
-        # else:
-        #     globals.config_index += 1
-        return new_edge_servers, global_access_point
-    else:
-        # Caricamento iniziale della configurazione
-        configuration = data_configurations["configurations"][globals.config_index]
-        
-        # Costruisci i server iniziali
-        edge_servers, neighbors_SAT, list_acc_point = build_EdgeServer_from_config(env, configuration)
-
-        # Stampa per debug
-        #print(f"Configurazione iniziale caricata. Totale server: {len(edge_servers)}")
-        server_dict = {server.name: server for server in edge_servers}
-
-        # Aggiungiamo i vicini per ogni elemento
-        for server in edge_servers:
-            neighbors = neighbors_SAT[server.name]
-
-            for n in neighbors:
-                neighbor_server = server_dict.get(n["name"])
-                server.add_neighbor(neighbor_server, 1, n["latency"],
-                                    globals.rnd.uniform(config["available_bandwidth"]["min"],
-                                                   config["available_bandwidth"]["max"]))
-
-        #Trovo i nuovi acc_points
-        counter_acc_found = 0
-        for server in edge_servers:
-            if counter_acc_found < config["access_point"]:
-                if server.is_acc_point:
-                    global_access_point.append(server)
-                    counter_acc_found += 1
-            else:
-                break
-        
-        # print("TOPOLOGIA ATTUALE:")
-        # [print(sat.name) for sat in edge_servers]
-
-        #globals.config_index += 1
-        globals.ist_in_conf = string_to_skyfield_time(configuration["time"])
-        globals.edge_servers_topology = edge_servers
-        return edge_servers, global_access_point
 
 def loadConfiguration(env, data_configurations, OGMs_tables):
     """
-    Carica una configurazione dal file e aggiorna la lista edge_servers senza sostituirla completamente.
-
+    Carica la configurazione dal file e aggiorna la lista edge_servers senza sostituirla completamente.
+    Args:
+        env: Ambiente simpy.
+        data_configurations: Il dizionario contenente le configurazioni caricate dal file JSON.
+        OGMs_tables: Il dizionario contenente le tabelle OGM per ogni configurazione.
+        simple: Flag per indicare se caricare la configurazione in modalità semplice.
     Returns:
         None
     """
+
     global_access_point = []    # futuri acc_points
+
     if globals.config_index > 0:
-        #print("#" * 30)
         configuration = data_configurations["configurations"][globals.config_index]
-        OGMs_table_single_config = OGMs_tables[str(globals.config_index)]
         globals.ist_in_conf = string_to_skyfield_time(configuration["time"])
 
         print("Aggiornato il Tempo Globale: ", globals.ist_in_conf.utc_strftime('%Y-%m-%d %H:%M:%S'))
-        #print(f'Conf: {globals.config_index} | time : {configuration["time"]}')
 
-        # Costruisci i nuovi server dalla configurazione
-        new_servers, new_neighbors, acc_point = build_EdgeServer_from_config(env,
-                     configuration, OGMs_table_single_config)
+        # ! Costruisci i nuovi server dalla configurazione
+        if OGMs_tables:
+            OGMs_table_single_config = OGMs_tables[str(globals.config_index)]
+            new_servers, new_neighbors, acc_point = build_EdgeServer_from_config(env, configuration, OGMs_table_single_config)
+        else:
+            new_servers, new_neighbors, acc_point = build_EdgeServer_from_config(env, configuration)
 
-        # Aggiorna i server esistenti o aggiunge nuovi server se non presenti.
+        # ! Aggiorna i server esistenti o aggiunge nuovi server se non presenti.
         intersection, old_edge_servers, new_edge_servers = update_servers(new_servers, acc_point)
 
         server = {**intersection, **new_edge_servers}
@@ -601,10 +517,7 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
         update_counters_dictionary(server, globals.initial_server_counter,
                                    globals.different_server_counter, globals.other_server_counter)  # Aggiorno i dizionari dei nuovi aggiunti
 
-        # Stampa per debug
-        #print(f"Configurazione aggiornata. Totale server: {len({**intersection, **new_edge_servers, **old_edge_servers})}")
-
-        # Aggiorno i vicini
+        # ! Aggiorno i vicini
         servers_in_dome_updated = update_servers_neighbors({**intersection, **new_edge_servers},
                                                            new_neighbors)  # Aggiorno i vicini per i server nell'intersection e i nuovi aggiunti
         
@@ -630,31 +543,24 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
         for server in new_edge_servers:
             if counter_acc_found < config["access_point"]:
                 if server.is_acc_point:
-                    #print()
                     global_access_point.append(server)
                     counter_acc_found += 1
             else:
                 break
 
-        # Incrementa l'indice di configurazione
-        # if globals.config_index > config["Number_of_Configurations"] - 1:
-        #     print("(!) Hai finito le configurazioni")
-        #     print(f"CONFIGURAZIONE elaborata {globals.config_index}")
-        # else:
-        #     globals.config_index += 1
         return new_edge_servers, global_access_point
     else:
         print(f"SIMULAZIONE INIZIATA conf {globals.config_index}")
         # Caricamento iniziale della configurazione
         configuration = data_configurations["configurations"][globals.config_index]
-        OGMs_table_single_config = OGMs_tables[str(globals.config_index)]
-
+        
         # Costruisci i server iniziali
-        edge_servers, neighbors_SAT, list_acc_point = build_EdgeServer_from_config(env,
-                     configuration, OGMs_table_single_config)
+        if OGMs_tables:
+            OGMs_table_single_config = OGMs_tables[str(globals.config_index)]
+            edge_servers, neighbors_SAT, list_acc_point = build_EdgeServer_from_config(env, configuration, OGMs_table_single_config)
+        else:
+            edge_servers, neighbors_SAT, list_acc_point = build_EdgeServer_from_config(env, configuration)
 
-        # Stampa per debug
-        #print(f"Configurazione iniziale caricata. Totale server: {len(edge_servers)}")
         server_dict = {server.name: server for server in edge_servers}
 
         # Aggiungiamo i vicini per ogni elemento
@@ -683,36 +589,6 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
         globals.ist_in_conf = string_to_skyfield_time(configuration["time"])
         globals.edge_servers_topology = edge_servers
         return edge_servers, global_access_point
-
-def updateTaskValue(data_configurations):
-    index_config = 0
-    lifes = []  # Lista per salvare le vite dei satelliti
-    configurations = data_configurations["configurations"]   
-    #print(f"Analisi {len(configurations)} configurazioni :")
-    for i in range(len(configurations)):
-        conf =  data_configurations["configurations"][index_config]
-        #print(f"[{i}] Configuration time: {conf['time']} sat:({len(conf['configuration'])})")
-        
-        for satellite in conf["configuration"]:
-            if satellite["life"]["life_seconds"] == None:
-                pass
-            else:
-                if not any(satellite["satellite"] == sat["satellite"] for sat in lifes):
-                    lifes.append(
-                            {"satellite" : satellite["satellite"],
-                            "life": satellite["life"]["life_seconds"]}
-                        )
-                    #print(f"satellite: { satellite['satellite']}\t|  life :{satellite['life']['life_seconds']}")
-        #print(f"Incremento lifes: {len(lifes)}")
-        index_config += 1
-    #print("#" * 50)
-    
-    lifes_value = [sat["life"] for sat in lifes]
-    #print(f"Average life: {sum(lifes_value) / len(lifes_value)}")
-    #print(f"Max life: {max(lifes_value)}")
-    #print(f"Min life: {min(lifes_value)}")
-    
-    return min(lifes_value), max(lifes_value), sum(lifes_value) / len(lifes_value)
 
 def string_to_skyfield_time(time_str):
     # Converte la stringa in oggetto datetime
