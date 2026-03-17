@@ -9,9 +9,13 @@ visibility and access point criteria.
 
 import json5
 from math import sqrt
+import numpy as np
 from datetime import timedelta
+
 from skyfield.api import load, EarthSatellite, wgs84
 from skyfield.timelib import Time
+from skyfield.toposlib import GeographicPosition
+
 from Satellite import Satellite
 import sys
 from enums import AccPointMode
@@ -196,6 +200,89 @@ def filterSatellitesInView(satellite, t):
     v_rel = globals.np.dot(velocity.km_per_s, r_unit)       # Calcoliamo la velocità calcolando il prodotto scalare tra r e r_unit
     
     return True if v_rel < 0 else False
+
+
+
+def getAllSatOnLine(t:Time, tle_data, pos_A:GeographicPosition, pos_B: GeographicPosition, corridor_deg:float = config["corridor_angle"]):
+    """
+    This function return all satellites between a given point A,
+    and a given point B, in a specific time t.
+    It use the TLE data to find all satellites in the line of sight between A and B.
+
+    Args:
+        t: time of observation
+        tle_data: TLE data of the satellites
+        pos_A: position of point A (observer)
+        pos_B: position of point B (target)
+    Returns:
+        pass
+    """
+    corridor_rad = np.radians(corridor_deg)             # Angolo corridoio in radianti
+    sat_on_line = [] # List of satellites between A and B 
+    
+    # 1. Calcoliamo A e B nello spazio geocentrico al tempo 't'
+    vA_km = pos_A.at(t).position.km
+    vB_km = pos_B.at(t).position.km
+
+    print("Vettore A:", vA_km)
+    print("Vettore B:", vB_km)
+    
+    # Normalizziamo per avere vettori di lunghezza 1
+    vA = vA_km / np.linalg.norm(vA_km)
+    vB = vB_km / np.linalg.norm(vB_km)
+    
+    # ! Caso Cupola
+    if np.linalg.norm(vA - vB) < 1e-7:
+        # ! A e B sono lo stesso punto
+        # TODO : Gestisci il caso in cui A e B sono lo stesso, SOLUZIONE: CUPOLA.
+        sys.exit(colorize("[ERROR]: A and B are the same point. Please use the 'getSatellitesInDome' function instead.","red"))
+    
+    else:
+        # ! A e B sono diversi
+        cross_prod = np.cross(vA, vB)       # Vettore normale al piano definito da A e B
+        norm = np.linalg.norm(cross_prod)   # Vettore normalizzato
+
+        # Gestione del caso limite (Punti opposti)
+        if norm < 1e-7:
+            # Se la norma è molto piccola, significa che A e B sono opposti.
+            v_ref = np.array([0, 0, 1])                     # Vettore di riferimento (Polo Nord - Asse Z)
+            if np.linalg.norm(np.cross(vA, v_ref)) < 1e-7:  
+                # Se vA è Polo Nord, Usiamo un altro vettore di riferimento (Asse X)
+                v_ref = np.array([1, 0, 0])
+            cross_prod = np.cross(vA, v_ref) 
+            norm = np.linalg.norm(cross_prod)
+            
+            if norm < 1e-7:
+                # ! Caso Assurdo : Può accadere !?!?!?
+                sys.exit(colorize("[ERROR]: Non è possibile definire un piano per A e B !!! Verifica i dati di input. ","red"))
+
+        # Vettore normale del piano
+        n = cross_prod / norm
+
+        # Piani di delimitazione (i "muri")
+        nA = np.cross(n, vA)
+        nB = np.cross(vB, n)
+
+        for i in range(0, len(tle_data), 3):
+            name = tle_data[i].strip()
+            line1 = tle_data[i + 1].strip()
+            line2 = tle_data[i + 2].strip()
+
+            satellite = EarthSatellite(line1, line2, name, ts)  # Converting tle Data in SGP4 Satellite Object
+            vP_km = satellite.at(t).position.km # Estraiamo la posizione del satellite al tempo 't' in km
+            
+            vP = vP_km / np.linalg.norm(vP_km)  # Normalizziamo il vettore del satellite
+
+            theta = np.arcsin(abs(np.clip(np.dot(n, vP), -1.0, 1.0)))
+
+            # Controllo se è nel corridoio e in mezzo ai due muri
+            if theta < corridor_rad:
+                if np.dot(vP, nA) >= 0 and np.dot(vP, nB) >= 0:
+                    sat_on_line.append(satellite)
+
+        return sat_on_line
+    
+
 
 # ---------------------------------------------------------------------------- #
 def getAllSatOnMe(t, tle_data, ap_mode : AccPointMode, Phi_max = config["Phi_max"], Num_Access_point = config["access_point"]):

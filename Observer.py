@@ -20,6 +20,7 @@ This module provides:
 import globals
 from collections import OrderedDict
 from skyfield.api import wgs84
+from skyfield.toposlib import GeographicPosition
 import sys
 import json5
 
@@ -50,6 +51,22 @@ class ObserverMeta(type):
             cls._instances[cls] = instance
         return cls._instances[cls]
     
+
+class Observer_Temp:
+    """
+    OGGETTO TEMPORANEO.
+    Rappresenta l'osservatore nella simulazione, o meglio, colui che genera i task e riceve i risultati.
+    """
+    def __init__(self, loc_name: str, position: GeographicPosition):
+        
+        self.position = position    # Posizione dell'observers
+        self.name = 'OBS'           
+        self.location_name =  loc_name
+
+    def __str__(self):
+        return f"Observer(name={self.name}, location_name={self.location_name}, position={self.position})"  
+
+
 
 class Observer(metaclass = ObserverMeta):
     def __init__(self, env, pos):

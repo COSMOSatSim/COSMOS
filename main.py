@@ -92,11 +92,12 @@ if __name__ == "__main__":
         tle_data = saveTLEOnFile()
         t0 = get_current_time()
         configurations_base = build_configurations(t0, tle_data, AccPointMode.BASE)
-        configuration_optimal = build_configurations(t0, tle_data, AccPointMode.OPTIMAL)
+        configurations_optimal = build_configurations(t0, tle_data, AccPointMode.OPTIMAL)
         
         # Costruzione delle OGM table
         if config["redistribuite_OGM"]:
             process_OGM_enviroment_simulation(configurations_base)
+            process_OGM_enviroment_simulation(configurations_optimal)
             # Pulizia configurazioni di riempimento
             remove_first_30_configurations(AccPointMode.BASE)   
             remove_first_30_configurations(AccPointMode.OPTIMAL)

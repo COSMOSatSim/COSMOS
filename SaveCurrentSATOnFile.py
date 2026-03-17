@@ -62,3 +62,15 @@ def saveTLEOnFile() -> tle_data:
     else:
         print("Nessun dato TLE disponibile per il salvataggio.")
 
+
+def openTLEFromFile(file_path: str = "./data/tle_data.txt") -> tle_data:
+    if not os.path.exists(file_path):
+        sys.exit(colorize(f"Errore: Il file '{file_path}' non esiste. Assicurati di aver eseguito 'saveTLEOnFile()' prima.","red"))
+    
+    try:
+        with open(file_path, "r") as file:
+            tle_data = file.read().strip().splitlines()
+            print(colorize(f"[TLE] Dati TLE caricati da '{file_path}'","green"))
+            return tle_data
+    except IOError as e:
+        sys.exit(colorize(f"Errore nella lettura del file: {e}","red"))
