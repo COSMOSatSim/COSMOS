@@ -304,16 +304,21 @@ def getAllSatOnPoint(
     return dome, sat_sort_buff
 
 
-def getAllSatOnLine(
+
+
+def getAllSatOnLine_old(
     t: Time,
     tle_data,
     pos_A: GeographicPosition,
     pos_B: GeographicPosition,
     corridor_deg: float = config["corridor_angle"],
     Phi_max: int = config["Phi_max"],
+    Buffer_zone: int = config["Phi_buffer"],
     ap_mode_a: AccPointMode = AccPointMode.BASE,
 ) -> topology:
     """
+    OLD VERSION - SLOWER VERSION
+    
     This function return all satellites between a given point A,
     and a given point B, in a specific time t.
     It use the TLE data to find all satellites in the line of sight between A and B.
@@ -325,45 +330,17 @@ def getAllSatOnLine(
         pos_B (GeographicPosition): position of point B (target)
         corridor_deg (float) : Corridor angle from center of Earth.
         Phi_max (int): Elevation Angle of a given point to search satellite in that area.
+        Buffer_zone (int): Angle of a Buffer Zone
         ap_mode_a (AccPointMode): Mode to get Access Points.
 
     Returns:
-        pass
+        topology (topology): list of satellites between A and B.
     """
     corridor_rad = np.radians(corridor_deg)  # Angolo corridoio in radianti
-    Phi_max_rad = np.radians(Phi_max)  # Phi_max in radianti una volta sola
-        
-    satellites_on_A = getAllSatOnPoint(
-        t,
-        tle_data,
-        pos_A,
-        Phi_max,
-        config["Phi_buffer"],
-        config["access_point"],
-        ap_mode_a,
-    )
-    satellites_on_B = getAllSatOnPoint(
-        t,
-        tle_data,
-        pos_B,
-        Phi_max,
-        config["Phi_buffer"],
-        config["access_point"],
-        ap_mode_a,
-    )
+    BZED = Phi_max - Buffer_zone # Buffer Zone Elevation Degrees 
     
-    # Uniamo i satelliti Dome + buffer zone
+    sat_on_line = []  # List of satellites between A and B and in the Dome of A and B
     
-    complete_dome_A = {satellite.satellite.name: satellite for satellite in satellites_on_A[0]+satellites_on_A[1]}
-    complete_dome_B = {satellite.satellite.name: satellite for satellite in satellites_on_B[0]+satellites_on_B[1]}
-
-    #! TEST
-      
-    print(colorize(f"[TEST] A:{len(complete_dome_A)} B:{len(complete_dome_B)}","green"))
-    #sys.exit(colorize("[TEST]", "orange"))
-    sat_on_line = []  # List of satellites between A and B
-
-    # Calcoliamo A e B nello spazio geocentrico al tempo 't'
     vA_km = pos_A.at(t).position.km
     vB_km = pos_B.at(t).position.km
 
@@ -373,21 +350,16 @@ def getAllSatOnLine(
 
     # ! Caso Cupola
     if np.linalg.norm(vA - vB) < 1e-7:
-        # ! A e B sono lo stesso punto
-        # TODO : Gestisci il caso in cui A e B sono lo stesso, SOLUZIONE: CUPOLA.
-        sys.exit(
-            colorize(
-                "[ERROR]: A and B are the same point. Please use the 'getSatellitesInDome' function instead.",
-                "red",
-            )
-        )
+        # Se A e B sono uguali, ritorno la cupula di A (OBSERVER)
+        print(colorize("[DEBUG] A e B sono uguali, ritorno la cupola di A", "yellow"))
+        pass
 
     else:
         # ! A e B sono diversi
         cross_prod = np.cross(vA, vB)  # Vettore normale al piano definito da A e B
         norm = np.linalg.norm(cross_prod)  # Vettore normalizzato
 
-        # Gestione del caso limite (Punti opposti)
+        #! CASO LIMITE : A e B sono opposti (Norma del prodotto vettoriale è zero)
         if norm < 1e-7:
             # Se la norma è molto piccola, significa che A e B sono opposti.
             v_ref = np.array([0, 0, 1])  # Vettore di riferimento (Polo Nord - Asse Z)
@@ -418,13 +390,15 @@ def getAllSatOnLine(
             name = tle_data[i].strip()
             line1 = tle_data[i + 1].strip()
             line2 = tle_data[i + 2].strip()
+            
 
             satellite = EarthSatellite(
                 line1, line2, name, ts
             )  # Converting tle Data in SGP4 Satellite Object
-            vP_km = satellite.at(
-                t
-            ).position.km  # Estraiamo la posizione del satellite al tempo 't' in km
+            vP_km = satellite.at(t).position.km  # Estraiamo la posizione del satellite al tempo 't' in km
+            alt_comp_A, _, dist_comp_A = (satellite - pos_A).at(t).altaz() # Altitudine e sitanza satellite rispetto a A
+            alt_comp_B, _, dist_comp_B = (satellite - pos_B).at(t).altaz() # Altitudine e sitanza satellite rispetto a B    
+            
             vP = vP_km / np.linalg.norm(vP_km)  # Normalizziamo il vettore del satellite
 
             # FASE 1 : Verifica Se il satellite è nel corridoio
@@ -433,24 +407,105 @@ def getAllSatOnLine(
 
             # FASE 2 : Verifica nA < vP < nB (il satellite è fra i vettori A e B)
             between_walls = np.dot(vP, nA) >= 0 and np.dot(vP, nB) >= 0
+            
+            if (in_corridor_inf and between_walls) or (alt_comp_A.degrees > BZED) or (alt_comp_B.degrees > BZED):
+                sat_on_line.append(satellite)
 
-            # FASE 3 : Verifica della cupola
-            # Calcoliamo i vettori dall'osservatore al satellite in km
+        return sat_on_line
+
+import sys
+import numpy as np
+# Assicurati di avere importato EarthSatellite, ts, colorize, AccPointMode, config, ecc.
+
+def getAllSatOnLine(
+    t: Time,
+    tle_data,
+    pos_A: GeographicPosition,
+    pos_B: GeographicPosition,
+    corridor_deg: float = config["corridor_angle"],
+    Phi_max: int = config["Phi_max"],
+    Buffer_zone: int = config["Phi_buffer"],
+    ap_mode_a: AccPointMode = AccPointMode.BASE,
+):
+    """
+    This function return all satellites between a given point A,
+    and a given point B, in a specific time t.
+    It use the TLE data to find all satellites in the line of sight between A and B,
+    including the dome/buffer zone exactly above A and B.
+    """
+    corridor_rad = np.radians(corridor_deg)  
+    BZED = Phi_max - Buffer_zone 
+    BZED_rad = np.radians(BZED) # Convertito una volta sola fuori dal ciclo
+    
+    sat_on_line = [] 
+    
+    # 1. Calcolo vettori osservatori (Geocentrici)
+    vA_km = pos_A.at(t).position.km
+    vB_km = pos_B.at(t).position.km
+
+    # Normalizzati (Vettori Zenit)
+    vA = vA_km / np.linalg.norm(vA_km)
+    vB = vB_km / np.linalg.norm(vB_km)
+
+    # Gestione caso A = B
+    if np.linalg.norm(vA - vB) < 1e-7:
+        print(colorize("[DEBUG] A e B sono uguali. Utilizzare la funzione su punto singolo.", "yellow"))
+        # Inserisci qui la logica di fallback se serve
+        pass
+
+    else:
+        # 2. Costruzione del piano del corridoio
+        cross_prod = np.cross(vA, vB) 
+        norm = np.linalg.norm(cross_prod) 
+
+        # Caso limite: A e B opposti
+        if norm < 1e-7:
+            v_ref = np.array([0, 0, 1]) 
+            if np.linalg.norm(np.cross(vA, v_ref)) < 1e-7:
+                v_ref = np.array([1, 0, 0])
+            cross_prod = np.cross(vA, v_ref)
+            norm = np.linalg.norm(cross_prod)
+
+            if norm < 1e-7:
+                sys.exit(colorize("[ERROR]: Non è possibile definire un piano per A e B !!! Verifica i dati di input. ", "red"))
+
+        # Vettore normale del piano e "Muri"
+        n = cross_prod / norm
+        nA = np.cross(n, vA)
+        nB = np.cross(vB, n)
+
+        # 3. FASE ACQUISIZIONE: Singolo ciclo TLE ultra-veloce
+        for i in range(0, len(tle_data), 3):
+            name = tle_data[i].strip()
+            line1 = tle_data[i + 1].strip()
+            line2 = tle_data[i + 2].strip()
+
+            # Creazione satellite e calcolo posizione orbitale (LA PARTE PIÙ PESANTE, FATTA UNA VOLTA SOLA)
+            satellite = EarthSatellite(line1, line2, name, ts)
+            vP_km = satellite.at(t).position.km  
+            vP = vP_km / np.linalg.norm(vP_km)  
+
+            # --- FASE 1: Verifica Corridoio Centrale ---
+            # Angolo rispetto al piano centrale
+            theta = np.arcsin(abs(np.clip(np.dot(n, vP), -1.0, 1.0)))
+            in_corridor_inf = theta < corridor_rad
+            # Verifica che sia racchiuso tra A e B
+            between_walls = np.dot(vP, nA) >= 0 and np.dot(vP, nB) >= 0
+
+            # --- FASE 2: Verifica Cupole (Metodo Topocentrico Vettoriale) ---
+            # Vettore da A al satellite
             top_A = vP_km - vA_km
-            top_B = vP_km - vB_km
-            # Li normalizziamo
             top_A_norm = top_A / np.linalg.norm(top_A)
-            top_B_norm = top_B / np.linalg.norm(top_B)
-
-            # Il prodotto scalare tra il vettore Zenit e il vettore Topocentrico ritorna il seno dell'elevazione sull'orizzonte
             alt_A_rad = np.arcsin(np.clip(np.dot(top_A_norm, vA), -1.0, 1.0))
+
+            # Vettore da B al satellite
+            top_B = vP_km - vB_km
+            top_B_norm = top_B / np.linalg.norm(top_B)
             alt_B_rad = np.arcsin(np.clip(np.dot(top_B_norm, vB), -1.0, 1.0))
 
-            in_dome_A = alt_A_rad > Phi_max_rad
-            in_dome_B = alt_B_rad > Phi_max_rad
-
             # --- UNIONE LOGICA ---
-            if (in_corridor_inf and between_walls) or in_dome_A or in_dome_B:
+            # È valido se si trova nel corridoio OPPURE sopra l'orizzonte BZED di A OPPURE di B
+            if (in_corridor_inf and between_walls) or (alt_A_rad > BZED_rad) or (alt_B_rad > BZED_rad):
                 sat_on_line.append(satellite)
 
         return sat_on_line

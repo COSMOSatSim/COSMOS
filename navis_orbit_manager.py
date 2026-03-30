@@ -3,34 +3,32 @@ import topology
 from Observer import Observer_Temp
 import sys
 from SaveCurrentSATOnFile import openTLEFromFile
-from user_based_topology import getAllSatOnLine
+from user_based_topology import getAllSatOnLine, getAllSatOnLine_old
 import numpy as np
 from Vessel import Vessel
 import json5
+from utils import colorize
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def load_vessels_settings(file_path: str = "vessel_setting.json5") -> Vessel:
+def load_vessels_settings(name_vassel:str, file_path: str = "vessel_setting.json5") -> Vessel:
     """
     This function loads vessel settings from a JSON5 configuration file and returns a list of Vessel instances.
     Args:
+        name_vessel (str): The name of the vessel to load from the configuration file.
         file_path (str): The path to the configuration file.
     Returns:
         Vessel: An instance of the Vessel class.
     """
     with open(file_path, "r") as file:
         data = json5.load(file)
-        vessels = []
-        for vessel_data in data.get("vessels", []):
-            
-            vessel = Vessel(
-                name=vessel_data.get("name"),
-                position=wgs84.latlon(vessel_data.get("lat"), vessel_data.get("lon")),
-            )
-            vessels.append(vessel)
-        return vessels[0]
+        info = data.get("vessels", {}).get(name_vassel)
+        print(colorize(f"[DEBUG] Loaded vessel position for '{name_vassel}': {info}", "cyan"))
+        vessel = Vessel(info.get("name"), wgs84.latlon(info.get("lat"), info.get("lon")))
+
+        return vessel
 
 
 def load_obs_settings(file_path: str = "config.json5") -> Observer_Temp:
@@ -243,7 +241,7 @@ def plot_corridor_3d_no_earth(sat_list, pos_A, pos_B, t):
     
 def manager():
 
-    Vessel = load_vessels_settings()
+    Vessel = load_vessels_settings("A")
     observer = load_obs_settings()
     tle_data = openTLEFromFile()
     ts = load.timescale()
@@ -257,11 +255,8 @@ def manager():
         pos_B=Vessel.position,
         corridor_deg=10.0
     )
-    print(len(sats))
     
-    # 2. Passi i risultati e i punti alla funzione di plotting
-    #plot_corridor_3d(sats, observer.position, Vessel.position, t0)
-    #plot_corridor_3d_no_earth(sats, observer.position, Vessel.position, t0)
     plot_corridor_3d_no_earth_3(sats, observer.position, Vessel.position, t0)
+
 if __name__ == "__main__":
     manager()
