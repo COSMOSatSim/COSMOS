@@ -7,8 +7,10 @@ management.
 """
 from enum import StrEnum, auto
 from typing import TypedDict, Any, List, Dict
+from skyfield.api import EarthSatellite
 
-tle_data = list[str]    # Type alias for TLE data representation
+tle_data= list[str]             # Type alias for TLE data representation
+topology = list[EarthSatellite] # Topology
 
 class AccPointMode(StrEnum):
     OPTIMAL = auto()    # "STATIC"
@@ -25,3 +27,4 @@ class GenConfigsOutput(TypedDict):
     total_seconds: int
     observer_position: Any
     configurations: List[GenConfigsConfigEntry]
+
