@@ -10,7 +10,7 @@ from typing import TypedDict, Any, List, Dict
 from skyfield.api import EarthSatellite
 
 tle_data= list[str]             # Type alias for TLE data representation
-topology = list[EarthSatellite] # Topology
+Topology = list[EarthSatellite] # Topology
 
 class AccPointMode(StrEnum):
     OPTIMAL = auto()    # "STATIC"

@@ -93,7 +93,7 @@
   sphere_altitude_km: 500000.0,
   AP_routing_bidirectional: true,
   Routing_Interval: 0.5,
-  corridor_angle: 1.0,
+  corridor_angle: 10.0,
   Routing_algorithm: {
     BATMAN: true,
     GREEDY: false,

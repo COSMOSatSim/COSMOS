@@ -31,8 +31,9 @@ from user_based_topology import (
 )
 from datetime import datetime, timedelta, timezone
 from routing_Manager import print_dict, manage_ogm_test, saveInfoInFile
-from enums import AccPointMode, GenConfigsOutput, tle_data, topology
+from enums import AccPointMode, GenConfigsOutput, tle_data, Topology
 from utils import colorize
+import numpy as np
 
 # Converti il tempo in UTC e formatta
 time_top = datetime.now(timezone.utc)  # O il tuo oggetto datetime
@@ -172,9 +173,6 @@ def find_satellite_events(satellite, t0):
             ).seconds,  # Life of the satellite in Dome
             "time_until_set_seconds": time_until_set,  # Time until the satellite sets
         }
-
-        if time_until_set > 1000:
-            print("ATTENZIONE")
 
     return life
 
@@ -327,7 +325,53 @@ def genConfigs_dome(
 
     return output
 
-def genConfigs_Line(
+
+def build_topology_network(satellites, t, max_range=config["Laser_Communication_Range"]):
+    """
+    Funzione che costruisce la topologia di rete basata sui satelliti forniti e sul tempo t.
+    Args:
+        satellites (list): Lista di satelliti (EarthSatellite) da considerare per la topologia.
+        t (Time): Il tempo specifico per cui calcolare le posizioni e le distanze dei satelliti.
+        max_range (float): La distanza massima (in km) per considerare due satelliti come vicini.
+    Returns:
+        dict: Un dizionario che mappa ogni satellite al suo elenco di vicini.
+    """
+    if not satellites:
+        return {}
+
+    # 1. Estraiamo le posizioni per tutti i satelliti
+    positions = np.array([sat.satellite.at(t).position.km for sat in satellites])
+    names = [sat.name for sat in satellites]
+    num_sats = len(satellites)
+
+    # 2.Matrice delle distanze NxN
+    # Sottraiamo ogni vettore da tutti gli altri contemporaneamente
+    diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
+    dist_matrix = np.linalg.norm(diff, axis=-1)
+
+    topology_map = {}
+
+    # 3. Filtriamo e costruiamo le tuple
+    for i in range(num_sats):
+        neighbors = []
+        for j in range(num_sats):
+            if i == j: 
+                continue # Salto me stesso
+            
+            dist = dist_matrix[i, j]
+            if dist < max_range:
+                latency = getLatency(dist) # Usa la tua funzione esistente
+                neighbors.append((names[j], float(dist), float(latency)))
+        
+        # Ordiniamo i vicini del satellite 'i' per distanza
+        neighbors.sort(key=lambda x: x[1])
+        topology_map[names[i]] = neighbors
+
+    return topology_map
+
+
+
+def genConfigs_line(
     t0:Time,
     interval:int,
     num_configs:int,
@@ -336,14 +380,48 @@ def genConfigs_Line(
     mode: AccPointMode,
     pos_A: GeographicPosition,
     pos_B: GeographicPosition
-    ):
+    ) -> GenConfigsOutput:
     """
     Questa funzione costruisce configurazioni dati due punti A e B.
     Crea 'num_configs' configurazioni ogni 'interval' di tempo a partire dal
     momento 't0'. Usa 'tle_data' per sapere la posizione dei satelliti.
     Salva tutto nel file json in 'json_path'.
     
+    Args:
+        t0 (Time): Initial time for generating configurations.
+        interval (int): Time interval (in seconds) between each configuration.
+        num_configs (int): Total number of configurations to generate.
+        tle_data (tle_data): TLE data for satellite positions.
+        json_path (str): Path to save the generated configurations in JSON format.
+        mode (AccPointMode): Mode for access point selection.
+        pos_A (GeographicPosition): Geographic position of point A.
+        pos_B (GeographicPosition): Geographic position of point B.
+    Returns:
+        GenConfigsOutput: An object containing the generated configurations and related metadata.
     """
+    t, configs = t0, [] # Initialize time and configuration list
+    totSecs = num_configs * interval # Total duration in seconds
+    
+    print(colorize(f"[{mode}] Generazione Configurazioni:", "yellow"))
+    for elapsed_time in range(0, totSecs, interval):
+        step_index = elapsed_time // interval + 1
+        print_progress_bar(step_index, num_configs, 40) # print progeess bar
+        
+        line_conf = [] # Initialize configuration for the current time step
+        
+        line = getAllSatOnLine(t, tle_data, pos_A, pos_B, ap_mode_a=mode) # Get satellites in line between pos_A and pos_B
+        line_map = build_topology_network(line, t) # Build the Network for the satellites in line
+        
+        for satellite in line:
+            # Get neighbors for all satellites in line
+            neighbors_info = line_map.get(satellite.name, [])
+            #TODO : Abbiamo escluso per il momento il calcolo della vita "AOS, Max-El...""
+            info_sat = create_satellite_Identity_card(
+                satellite, None, neighbors_info, t, satellite.is_acc_point, line_setup=True
+            )
+            print(info_sat)
+            sys.exit(colorize("STOP TEST", "red"))
+            
     pass
 
 

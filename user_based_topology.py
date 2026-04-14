@@ -18,7 +18,7 @@ from skyfield.toposlib import GeographicPosition
 
 from Satellite import Satellite
 import sys
-from enums import AccPointMode, topology, tle_data
+from enums import AccPointMode, Topology, tle_data
 import globals
 from utils import colorize
 
@@ -304,119 +304,6 @@ def getAllSatOnPoint(
     return dome, sat_sort_buff
 
 
-
-
-def getAllSatOnLine_old(
-    t: Time,
-    tle_data,
-    pos_A: GeographicPosition,
-    pos_B: GeographicPosition,
-    corridor_deg: float = config["corridor_angle"],
-    Phi_max: int = config["Phi_max"],
-    Buffer_zone: int = config["Phi_buffer"],
-    ap_mode_a: AccPointMode = AccPointMode.BASE,
-) -> topology:
-    """
-    OLD VERSION - SLOWER VERSION
-    
-    This function return all satellites between a given point A,
-    and a given point B, in a specific time t.
-    It use the TLE data to find all satellites in the line of sight between A and B.
-
-    Args:
-        t (Time): time of observation
-        tle_data: TLE data of the satellites
-        pos_A (GeographicPosition): position of point A (observer)
-        pos_B (GeographicPosition): position of point B (target)
-        corridor_deg (float) : Corridor angle from center of Earth.
-        Phi_max (int): Elevation Angle of a given point to search satellite in that area.
-        Buffer_zone (int): Angle of a Buffer Zone
-        ap_mode_a (AccPointMode): Mode to get Access Points.
-
-    Returns:
-        topology (topology): list of satellites between A and B.
-    """
-    corridor_rad = np.radians(corridor_deg)  # Angolo corridoio in radianti
-    BZED = Phi_max - Buffer_zone # Buffer Zone Elevation Degrees 
-    
-    sat_on_line = []  # List of satellites between A and B and in the Dome of A and B
-    
-    vA_km = pos_A.at(t).position.km
-    vB_km = pos_B.at(t).position.km
-
-    # Normalizziamo per avere vettori di lunghezza 1
-    vA = vA_km / np.linalg.norm(vA_km)
-    vB = vB_km / np.linalg.norm(vB_km)
-
-    # ! Caso Cupola
-    if np.linalg.norm(vA - vB) < 1e-7:
-        # Se A e B sono uguali, ritorno la cupula di A (OBSERVER)
-        print(colorize("[DEBUG] A e B sono uguali, ritorno la cupola di A", "yellow"))
-        pass
-
-    else:
-        # ! A e B sono diversi
-        cross_prod = np.cross(vA, vB)  # Vettore normale al piano definito da A e B
-        norm = np.linalg.norm(cross_prod)  # Vettore normalizzato
-
-        #! CASO LIMITE : A e B sono opposti (Norma del prodotto vettoriale è zero)
-        if norm < 1e-7:
-            # Se la norma è molto piccola, significa che A e B sono opposti.
-            v_ref = np.array([0, 0, 1])  # Vettore di riferimento (Polo Nord - Asse Z)
-            if np.linalg.norm(np.cross(vA, v_ref)) < 1e-7:
-                # Se vA è Polo Nord, Usiamo un altro vettore di riferimento (Asse X)
-                v_ref = np.array([1, 0, 0])
-            cross_prod = np.cross(vA, v_ref)
-            norm = np.linalg.norm(cross_prod)
-
-            if norm < 1e-7:
-                # ! Caso Assurdo : Può accadere !?!?!?
-                sys.exit(
-                    colorize(
-                        "[ERROR]: Non è possibile definire un piano per A e B !!! Verifica i dati di input. ",
-                        "red",
-                    )
-                )
-
-        # Vettore normale del piano
-        n = cross_prod / norm
-
-        # Piani di delimitazione (i "muri")
-        nA = np.cross(n, vA)
-        nB = np.cross(vB, n)
-
-        # ! FASE ACQUISIZIONE : Prendiamo realmente i satelliti.
-        for i in range(0, len(tle_data), 3):
-            name = tle_data[i].strip()
-            line1 = tle_data[i + 1].strip()
-            line2 = tle_data[i + 2].strip()
-            
-
-            satellite = EarthSatellite(
-                line1, line2, name, ts
-            )  # Converting tle Data in SGP4 Satellite Object
-            vP_km = satellite.at(t).position.km  # Estraiamo la posizione del satellite al tempo 't' in km
-            alt_comp_A, _, dist_comp_A = (satellite - pos_A).at(t).altaz() # Altitudine e sitanza satellite rispetto a A
-            alt_comp_B, _, dist_comp_B = (satellite - pos_B).at(t).altaz() # Altitudine e sitanza satellite rispetto a B    
-            
-            vP = vP_km / np.linalg.norm(vP_km)  # Normalizziamo il vettore del satellite
-
-            # FASE 1 : Verifica Se il satellite è nel corridoio
-            theta = np.arcsin(abs(np.clip(np.dot(n, vP), -1.0, 1.0)))
-            in_corridor_inf = theta < corridor_rad
-
-            # FASE 2 : Verifica nA < vP < nB (il satellite è fra i vettori A e B)
-            between_walls = np.dot(vP, nA) >= 0 and np.dot(vP, nB) >= 0
-            
-            if (in_corridor_inf and between_walls) or (alt_comp_A.degrees > BZED) or (alt_comp_B.degrees > BZED):
-                sat_on_line.append(satellite)
-
-        return sat_on_line
-
-import sys
-import numpy as np
-# Assicurati di avere importato EarthSatellite, ts, colorize, AccPointMode, config, ecc.
-
 def getAllSatOnLine(
     t: Time,
     tle_data,
@@ -426,7 +313,8 @@ def getAllSatOnLine(
     Phi_max: int = config["Phi_max"],
     Buffer_zone: int = config["Phi_buffer"],
     ap_mode_a: AccPointMode = AccPointMode.BASE,
-):
+    num_acc_point_A: int = config["access_point"]
+) -> Topology:
     """
     This function return all satellites between a given point A,
     and a given point B, in a specific time t.
@@ -474,7 +362,7 @@ def getAllSatOnLine(
         nA = np.cross(n, vA)
         nB = np.cross(vB, n)
 
-        # 3. FASE ACQUISIZIONE: Singolo ciclo TLE ultra-veloce
+        # 3. FASE ACQUISIZIONE
         for i in range(0, len(tle_data), 3):
             name = tle_data[i].strip()
             line1 = tle_data[i + 1].strip()
@@ -506,8 +394,37 @@ def getAllSatOnLine(
             # --- UNIONE LOGICA ---
             # È valido se si trova nel corridoio OPPURE sopra l'orizzonte BZED di A OPPURE di B
             if (in_corridor_inf and between_walls) or (alt_A_rad > BZED_rad) or (alt_B_rad > BZED_rad):
-                sat_on_line.append(satellite)
-
+                # ! : controlla 
+                # TODO : CONTROLLA CHE QUESTA SEZIONE SIA GIUSTA E FAI IL COMMIT
+                sat_on_line.append(Satellite(satellite, np.linalg.norm(vP_km - vA_km), (name, line1, line2), False))
+        
+        # Sorting Satellite by distance from A
+        sat_on_line.sort(key=lambda sat: np.linalg.norm(sat.satellite.at(t).position.km - vA_km))  
+        
+        
+        if num_acc_point_A > len(sat_on_line):
+            num_acc_point_A = len(sat_on_line)//2 # Non ci sono abbastanza satelliti da usare come AP
+            print(colorize(f"WARNING: Not enough satellites to satisfy the request. The number of access points has been set to {num_acc_point_A}.", "orange"))
+        
+        
+        counter = 0 # Contatore degli access Point
+        # Determino Access Points
+        for sat in sat_on_line:
+            
+            if counter >= num_acc_point_A:
+                # Ho tutti gli AP di A, posso uscire
+                break
+            
+            # Check della modalità
+            if ap_mode_a == AccPointMode.BASE:
+                can_take = counter < num_acc_point_A
+            elif ap_mode_a == AccPointMode.OPTIMAL:
+                can_take = counter < num_acc_point_A and filterSatellitesInView(sat, t)
+            
+            if can_take:
+                sat.is_acc_point = True
+                counter += 1
+                
         return sat_on_line
 
 
@@ -565,7 +482,7 @@ def getAllSatOnMe(
     sat_sort_dome = sorted(satellites_dome, key=lambda s: s.distance)
     sat_sort_buff = sorted(satellites_buffer, key=lambda s: s.distance)
 
-    counter, acc_points, dome = 0, [], []
+    counter = 0
     if Num_Access_point > len(sat_sort_dome):
         Num_Access_point = (
             len(sat_sort_dome) // 2
@@ -576,7 +493,8 @@ def getAllSatOnMe(
 
     # Determino Access Points
     for sat in sat_sort_dome:
-
+        if counter >= Num_Access_point:
+            break
         # Decido se eseguire il filtro o meno
         if ap_mode == AccPointMode.BASE:
             can_take = counter < Num_Access_point
@@ -587,12 +505,10 @@ def getAllSatOnMe(
 
         if can_take:
             sat.is_acc_point = True
-            dome.append(sat)
             counter += 1
-        else:
-            dome.append(sat)
 
-    return dome, sat_sort_buff
+
+    return sat_sort_dome, sat_sort_buff
 
 
 def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
@@ -643,7 +559,7 @@ def find_angle(t, satellite):
 
 
 def create_satellite_Identity_card(
-    satellite, life, neighbors_info, t, access_points=False
+    satellite, life, neighbors_info, t, access_points=False, line_setup=False
 ):
     """
     Create a dictionary representing a satellite and its neighbors.
@@ -658,9 +574,11 @@ def create_satellite_Identity_card(
     Returns:
         dict: A dictionary representing the satellite and its neighbors.
     """
-    elevation_angle = find_angle(
-        t, satellite.satellite
-    )  # Mi trovo l'angolo di elevazione del satellite rispetto l'obverver
+    elevation_angle = None
+    if not line_setup:
+        elevation_angle = find_angle(
+            t, satellite.satellite
+        )  # Mi trovo l'angolo di elevazione del satellite rispetto l'obverver
 
     satellite_data = {
         "satellite": satellite.satellite.name,

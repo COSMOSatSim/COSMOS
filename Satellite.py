@@ -11,6 +11,7 @@ from skyfield.api import EarthSatellite
 class Satellite:
 
     def __init__(self, satellite : EarthSatellite, distance, tle, is_acc_point):
+        self.name = satellite.name
         self.satellite = satellite
         self.distance = distance            # distance rispetto all'OBSERVER
         self.tle = tle                      
