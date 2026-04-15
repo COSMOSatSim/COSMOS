@@ -1,4 +1,18 @@
+"""
+Module to fetch and save current TLE data of active satellites.
+
+This module retrieves the latest TLE (Two-Line Element) data for active
+satellites from Celestrak and saves it to a local file for use in
+satellite network simulations.
+"""
+
+
+import sys
 import requests
+import os
+from enums import tle_data
+from utils import colorize
+
 
 starlink_url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=STARLINK&FORMAT=TLE"
 all_active_url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=ACTIVE&FORMAT=TLE"
@@ -10,43 +24,53 @@ Questo script fa una richiesta al NOMAD per avere tutti i  dati TLE dei satellit
 In seguito li salva in un File: ./Data/tle_data.txt
 """
 
-
-# Posizione di riferimento in latitudine e longitudine (es. Roma)
-reference_lat = 41.8967 # latitudine in gradi
-reference_lon = 12.4822 # longitudine in gradi
-reference_alt = 0       # altitudine in km, considerando l'altitudine del suolo
-LEO_ORB = 300           # km
-ROMA = (reference_lat, reference_lon, reference_alt)
-
-# Raggio di ricerca in km
-radius_km = 300
-
 #Funzione che ritorna i satelliti attivi in formato tle 
 def get_active_satellites():
     url = starlink_url
-    print("Requesting Data\n")
+    print(colorize("[TLE] Requesting Data...","yellow"))
     response = requests.get(url) # ! Request
     if response.status_code == 200:
         tle_data = response.text.strip().splitlines() # ? TLE
-        print("Data received!\n")
+        print(colorize("[TLE] Data received.","green"))
         return tle_data
     else:
         print(f"Errore nella richiesta: {response.status_code}")
         return None
 
 
-def saveTLEOnFile():
-    filename="./data/tle_data.txt"
+def saveTLEOnFile() -> tle_data:
+    _dir, filename ="./data", "tle_data.txt"
     tle_data = get_active_satellites()
+    file_path = f"{_dir}/{filename}"
+    
+    # Check dir
+    if not os.path.exists(_dir):
+        try:
+            os.makedirs(_dir, exist_ok=True)
+        except OSError as e:
+            sys.exit(colorize(f"ERRORE: {e}","red"))
+
     if tle_data:
         try:
-            with open(filename, "w") as file:
+            with open(file_path, "w") as file:
                 for line in tle_data:
                     file.write(line + "\n")
-            print(f"Dati TLE salvati correttamente in '{filename}'")
+            print(colorize(f"[TLE] Elaborati Correttamente '{file_path}'","green"))
+            return tle_data
         except IOError as e:
-            print(f"Errore nel salvataggio del file: {e}")
+            sys.exit(colorize(f"Errore nel salvataggio del file: {e}","red"))
     else:
         print("Nessun dato TLE disponibile per il salvataggio.")
 
-#saveTLEOnFile()
+
+def openTLEFromFile(file_path: str = "./data/tle_data.txt") -> tle_data:
+    if not os.path.exists(file_path):
+        sys.exit(colorize(f"Errore: Il file '{file_path}' non esiste. Assicurati di aver eseguito 'saveTLEOnFile()' prima.","red"))
+    
+    try:
+        with open(file_path, "r") as file:
+            tle_data = file.read().strip().splitlines()
+            print(colorize(f"[TLE] Dati TLE caricati da '{file_path}'","green"))
+            return tle_data
+    except IOError as e:
+        sys.exit(colorize(f"Errore nella lettura del file: {e}","red"))
