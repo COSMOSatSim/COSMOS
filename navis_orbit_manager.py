@@ -1,6 +1,6 @@
 from skyfield.api import load, wgs84
 from Observer import Observer_Temp
-from SaveCurrentSATOnFile import openTLEFromFile
+from SaveCurrentSATOnFile import openTLEFromFile, saveTLEOnFile
 from user_based_topology import getAllSatOnLine
 from Vessel import Vessel
 import json5
@@ -51,7 +51,8 @@ def manager():
 
     Vessel = load_vessels_settings("A")
     observer = load_obs_settings()
-    tle_data = openTLEFromFile()
+    tle_data = saveTLEOnFile()
+    #tle_data = openTLEFromFile()
     ts = load.timescale()
     t0 = ts.now()
 
