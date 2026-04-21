@@ -1,3 +1,5 @@
+import sys
+
 from skyfield.api import load, wgs84
 from Observer import Observer_Temp
 from SaveCurrentSATOnFile import openTLEFromFile, saveTLEOnFile
@@ -51,8 +53,9 @@ def manager():
 
     Vessel = load_vessels_settings("A")
     observer = load_obs_settings()
-    tle_data = saveTLEOnFile()
-    #tle_data = openTLEFromFile()
+    #tle_data = saveTLEOnFile()
+    #sys.exit()
+    tle_data = openTLEFromFile()
     ts = load.timescale()
     t0 = ts.now()
 
@@ -67,16 +70,18 @@ def manager():
     
     # plot_orbital_corridor(sats, observer.position, Vessel.position, t0, 10.0)
 
-    genConfigs_line(
-        t0=t0,
-        interval=2, 
-        num_configs=10, 
-        tle_data=tle_data,
-        json_path="here.json5",
-        mode=AccPointMode.BASE, 
-        pos_A=observer.position,
-        pos_B=Vessel.position
-    )
+    # genConfigs_line(
+    #     t0=t0,
+    #     interval=2, 
+    #     num_configs=10, 
+    #     tle_data=tle_data,
+    #     json_path="here.json5",
+    #     mode=AccPointMode.BASE, 
+    #     pos_A=observer.position,
+    #     pos_B=Vessel.position
+    # )
+    
+    
     
 
 if __name__ == "__main__":
