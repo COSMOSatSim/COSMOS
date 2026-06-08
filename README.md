@@ -40,12 +40,21 @@ pip install simpy skyfield json5 numpy pandas
 ```
 
 ---
+## 🏃 Run the SimulationFirst-Time 
 
-## 🏃 Running the Simulation
+SetupBefore running the simulation for the first time, you need to configure the config.json5 file. Ensure the following parameters are:
 
-### Single Run
-To run a single simulation with the default configuration:
+| Parameters | Value | Description | 
+| :--- | :--- | :---|
+| Build_Configurations| True | This enabled parameter will get all satellites and their movement in the firmament. |
+| redistribuite_OGM | False | enabling this parameter we pre-build the redistribution of GMO packages|
+| Routing_algorithm : BATMAN | False |
+| Routing_algorithm : GREEDY | True |
+| Routing_algorithm : DSR | False |
 
+#### Execution
+
+Once the configuration is set, launch the simulation by running:
 ```bash
 python main.py
 ```
