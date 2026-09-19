@@ -13,9 +13,10 @@ from topology import build_configurations, get_global_mode, load_saved_configura
     periodic_recall_Topology_monitor, string_to_skyfield_time
 from user_based_topology import get_current_time, getObserverObj
 from SaveCurrentSATOnFile import saveTLEOnFile
-from routing_Manager import load_saved_OGM, periodic_recall_Routing_monitor
+from routing.ogm_manager import load_saved_OGM
+from routing.routing_engine import routing_simulation_process
 from Observer import Observer
-from simulation_OGM import process_OGM_enviroment_simulation, remove_warmup_configurations
+from routing.ogm_manager import process_OGM_enviroment_simulation, remove_warmup_configurations
 from routing.routing_manager import RoutingManager
 import globals
 import time
@@ -124,7 +125,7 @@ if __name__ == "__main__":
         sys.exit("Nessuna Configurazione richiesta!")
 
     globals.observer = Observer(env, getObserverObj())  # Singleton Observer
-    env.process(periodic_recall_Routing_monitor(env))
+    env.process(routing_simulation_process(env))
 
     if not globals.data_configurations:
         sys.exit("Errore: il file delle configurazioni è vuoto.")

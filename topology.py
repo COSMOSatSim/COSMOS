@@ -11,6 +11,7 @@ import sys
 import globals
 import json, json5
 import threading
+from tqdm import tqdm
 from skyfield.api import EarthSatellite, load
 from skyfield.timelib import Time
 from skyfield.toposlib import GeographicPosition
@@ -30,7 +31,6 @@ from user_based_topology import (
     ts,
 )
 from datetime import datetime, timedelta, timezone
-from routing_Manager import print_dict, manage_ogm_test, saveInfoInFile
 from enums import AccPointMode, GenConfigsOutput, tle_data, Topology
 from utils import colorize
 import numpy as np
@@ -177,14 +177,6 @@ def find_satellite_events(satellite, t0):
     return life
 
 
-def print_progress_bar(current_step, total_steps, bar_width=40, prefix="Avanzamento"):
-    """
-    Stampa una barra di progresso aggiornata sulla stessa riga.
-    current_step: 1-based index della iterazione corrente
-    total_steps: numero totale di step
-    """
-    if total_steps <= 0:
-        return
     progress = current_step / total_steps
     filled = int(bar_width * progress)
     bar = "[" + "#" * filled + "-" * (bar_width - filled) + "]"
@@ -266,10 +258,10 @@ def genConfigs_dome(
     # num_access_point = config["access_point"]  # Number of access points
     totSecs = num_configs * interval  # Total duration in seconds
 
-    print(f"[{mode}]GENERAZIONE CONFIGURAZIONI: ")
-    for elapsed_time in range(0, totSecs, interval):
+    print(colorize(f"[{mode}] GENERAZIONE CONFIGURAZIONI:", "yellow"))
+    for elapsed_time in tqdm(range(0, totSecs, interval), desc="Progresso", ncols=80):
         step_index = elapsed_time // interval + 1
-        print_progress_bar(step_index, num_configs, 40)
+        
 
         configuration = []
         
@@ -403,9 +395,9 @@ def genConfigs_line(
     totSecs = num_configs * interval # Total duration in seconds
     
     print(colorize(f"[{mode}] Generazione Configurazioni:", "yellow"))
-    for elapsed_time in range(0, totSecs, interval):
+    for elapsed_time in tqdm(range(0, totSecs, interval), desc="Progresso", ncols=80):
         step_index = elapsed_time // interval + 1
-        print_progress_bar(step_index, num_configs, 40) # print progeess bar
+         # print progeess bar
         
         line_conf = [] # Initialize configuration for the current time step
         
@@ -496,61 +488,6 @@ def periodic_recall_Topology_monitor(env, data_configurations, OGMs_tables):
         yield env.timeout(config["Interval_between_Configurations_in_seconds"])
 
 
-def distribute_ogm(env, data_configuration, config_riempimento):
-    OGMs_table = None  # Procedo a costruirle. Quindi le imposto come None
-
-    while True:
-        # SICUREZZA: Interrompiamo se abbiamo finito le configurazioni
-        if globals.config_index >= len(data_configuration["configurations"]):
-            print(colorize(f"[OGM-filling] Reached end of configurations. Terminating distribution.", "yellow"))
-            break
-
-        # Avvisa quando si è sull'ultimo elemento della configurazione
-        if globals.config_index == len(data_configuration["configurations"]) - 1:
-            print(
-                f"--- Reached last configuration element (index {globals.config_index})"
-            )
-        else:
-            print(f"--- Loading configuration index {globals.config_index}")
-
-        new_edge_servers, new_global_access_point = loadConfiguration(
-            env, data_configuration, OGMs_table
-        )  # Carica la configurazione
-
-        with lock:
-            globals.global_access_point = new_global_access_point
-            globals.edge_servers = new_edge_servers
-
-        with globals.lock_access_edge_servers_topology:
-            ogm_map = [globals.observer] + globals.edge_servers_topology
-
-        num_redistributions = config["OGMs_redistribution"]
-        time_section = (
-            config["Interval_between_Configurations_in_seconds"] / num_redistributions
-        )
-        ogm_table_snapshot, position_dict = None, None
-        at = timedelta(seconds=time_section)
-
-        # 1) Fase di Redistribuzione
-        for i in range(num_redistributions):
-            new_instant = ts.utc(globals.ist_in_conf.utc_datetime() + at)
-            at += timedelta(seconds=time_section)
-
-            print(
-                f"\tOGMS REDISTRIBUTION {i+1}/{num_redistributions} on : {new_instant.utc_iso(places=6)}"
-            )
-            ogm_table_snapshot = manage_ogm_test(ogm_map, new_instant)
-
-        # 2) Fase di Salvataggio
-        if globals.config_index >= config_riempimento:
-
-            ogm_table_path = f"data/OGMs_table.json"
-            new_index = globals.config_index - config_riempimento
-            saveInfoInFile(ogm_table_path, ogm_table_snapshot, new_index)
-
-        # Caricamento Configurazione Successiva
-        globals.config_index += 1
-        yield env.timeout(config["Interval_between_Configurations_in_seconds"])
 
 
 def update_counters_dictionary(

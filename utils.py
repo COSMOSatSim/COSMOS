@@ -37,3 +37,45 @@ def colorize(text: str, color: str) -> str:
     start = colors.get(color.lower(), "")
     end = colors["reset"] if start else ""
     return f"{start}{text}{end}"
+
+import sys
+import json
+
+
+
+def saveInfoInFile(file: str, value_dictionary: dict, N_config: str) -> None:
+    try:
+        with open(file, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        data = {}
+
+    # Scrivo la nuova configurazione
+    data[str(N_config)] = value_dictionary
+
+    with open(file, "w") as f:
+        json.dump(data, f, indent=4)
+
+def transmission_failure_probability(distance: float, laser_range: float) -> float:
+    # Probabilità di fallimento cresce linearmente con la distanza
+    return round(min(1.0, distance / laser_range), 2)
+
+def print_dict(d: dict, level: int = 0) -> None:
+    indent = '\t' * level
+
+    if isinstance(d, dict):
+        for key, value in d.items():
+            if isinstance(value, (dict, list)):
+                print(f"{indent}{key}:")
+                print_dict(value, level + 1)
+            else:
+                print(f"{indent}{key}:\t{value}")
+    elif isinstance(d, list):
+        for i, item in enumerate(d):
+            if isinstance(item, (dict, list)):
+                print(f"{indent}[{i}]:")
+                print_dict(item, level + 1)
+            else:
+                print(f"{indent}[{i}]:\t{item}")
+    else:
+        print(f"{indent}{d}")
