@@ -217,165 +217,8 @@ def create_ogm(obj, origin_position_vect, is_AP):
     obj.OGMs.append(ogm)           # Lo inserisco nella lista degli OGM da processare in questo server
 
 
-def routeDiscovery(source, task, neighbors):
-    """
-    Questa funzione prende un task è fa partire un processo
-    di route request fino alla destinazione.
-    """
-    task.routeRequestIst = source.env.now    # Save timestamp
-
-    for node in neighbors:
-
-        pkt_ID = source.name+"_"+str(source.packets_seq)
-        pkt = Packet(pkt_ID, task.id, task.current_node, task.dest_node, Mode.ROUTE_DISCOVERY)
-
-        node.packets.append(pkt)
-        pkt.current_node = node.name
-
-        source.pkt_history.append(pkt_ID)
-        source.packets_seq += 1
-
-        globals.gbl_packet.append(pkt)
-        #print(f"\t[{task.id}] PKTID: {pkt_ID} ({source.name}->{node.name})\t| HISTORY: {pkt.hop_History}")
-        #print(f"[{pkt_ID}] {task.current_node} --> {node.name}")
-
-# def getNextNode(neighbors, nextHopName):
-
-#     neighbor = next((n for n in neighbors if n.name == nextHopName), None)
-#     return neighbor
-
-def startRouteReply(source, neighbor_map, pkt: Packet):
-
-    pkt.mode = Mode.ROUTE_REPLY
-    last_node_name = pkt.node_stack.pop()
-    nextHop = neighbor_map.get(last_node_name)
-    
-    if nextHop:
-        nextHop.packets.append(pkt)
-    else:
-        if pkt in source.packets:
-            print(f"{pkt.id} Rimosso da {source.name}")
-            source.packets.remove(pkt)
-
-def sendPkt(source, dest, pkt:Packet):
-    if dest == None:
-        print(colorize("[ERROR] Destinazione None nel sendPkt()", "red"))
-        sys.exit("ERRORE: destination = None")
-
-    newPkt = pkt.duplicate()
-    newPkt.current_node = dest.name
-    newPkt.visited.add(source.name)
-    newPkt.node_stack.append(source.name)
-
-    if pkt.mode == Mode.ROUTE_DISCOVERY:
-        newPkt.hop_History.append(source.name)
-
-    dest.packets.append(newPkt)
-
-def forward_packet_dsr_best(env, node):
-    
-    # ? Gestione dei vicini
-    if node.name != 'OBS':
-        neighbors_list = list(node.neighbors.keys()) # Vicini Nodo Normale
-        if node.is_acc_point:
-            neighbors_list += [globals.observer]     # Vicini Nodo AP
-    else:
-        neighbors_list = globals.global_access_point # Vicini Observer
-
-    neighbor_map = {n.name: n for n in neighbors_list}
-    
-    # ! Processamento dei pacchetti
-    for pkt in node.packets[:]:
-        # TODO : Aggiungi un controllo per evitare il Sovracarico della rete
-        if pkt.mode == Mode.ROUTE_DISCOVERY:
-            if pkt.id not in node.pkt_history:
-                if pkt.dest == node.name:
-                    pkt.hop_History.append(node.name)
-                    startRouteReply(node, neighbor_map, pkt)
-                else:
-                    for n in neighbors_list:
-                        sendPkt(node, n, pkt)
-                # Nella history inserisco i DISCOVERY
-                node.pkt_history.append(pkt.id) 
-
-        elif pkt.mode == Mode.ROUTE_REPLY:
-            if pkt.source == node.name:
-                # ! Salviamo l'informazione che ci è giunta
-                if pkt.taskID not in node.routes:
-                    node.routes[pkt.taskID] = []
-                if pkt.hop_History not in node.routes[pkt.taskID]:
-                    node.routes[pkt.taskID].append(pkt.hop_History)
-            else:
-                lastNodeStack = pkt.node_stack.pop()
-                nextNode = neighbor_map.get(lastNodeStack) 
-
-                if nextNode is not None:
-                    sendPkt(node, nextNode, pkt)
-        node.packets.remove(pkt)
-    
-    # ! Route Request
-    for task in node.tasks:
-        if not task.routeRequestIst:
-            routeDiscovery(node, task, neighbors_list)
-        else:
-            if node.name == task.source_DSR:
-                timeout = 1             # 1s
-
-                if env.now - task.routeRequestIst > timeout:
-                    if task.id in node.routes:
-
-                        nextHop = None
-                        node.routes[task.id].sort(key=len)
-
-                        while len(node.routes[task.id]) > 0:
-                            route = node.routes[task.id][0].copy()
-                            nextHopName = route.pop(0)
-                            
-                            nextHop = neighbor_map.get(nextHopName)
-
-                            if nextHop is not None:
-                                task.selected_route = route
-                                break # Trovato, esco dal while mantenendo il valore di nextHop
-                            else:
-                                node.routes[task.id].pop(0)
-                        
-                        if nextHop is not None:
-                            env.process(node.transmit_task(env, task, nextHop, 'DSR'))
-                        else:
-                            # Nessuna Route Valida!
-                            task.routeRequestIst = None
-                            task.RouteReply = False
-                            task.selected_route = []
-
-                            if task.id in node.pkt_history:
-                                node.pkt_history.remove(task.id)
-                    else:
-                        timeout += 1
-
-            elif node.name == task.dest_node:
-                node.arrived_tasks.append(task)
-                # Usa una copia della lista se hai problemi di concorrenza, altrimenti ok
-                node.tasks.remove(task) 
-                task.routingEndTime = env.now
-                print(colorize(f"[{task.id}] CONSEGNATO! ", "green"))
-
-            else:
-                nextHopName = task.selected_route.pop(0)
-                # Lookup rapido
-                nextHop = neighbor_map.get(nextHopName)
-
-                if nextHop is not None:
-                    env.process(node.transmit_task(env, task, nextHop, 'DSR'))
-                else:
-                    # Route-Error
-                    task.routeRequestIst = None
-                    task.RouteReply = False
-                    task.selected_route = []
-                    task.source_DSR = node.name
-
-
-
-
+from routing.routing_manager import DsrStrategy
+from typing import Any
 
 # | Secondi | Millisecondi |
 # | ------- | ------------ |
@@ -385,18 +228,24 @@ def forward_packet_dsr_best(env, node):
 # | 0,01    | 10 ms        |
 # | 0,001   | 1 ms         |
 
-def periodic_recall_Routing_monitor(env):
+def periodic_recall_Routing_monitor(env: Any) -> Any:
     """
     Questa funzione dovrà scorrere costantemente tutti i task dentro
     la lista dei globali, e costantemente spingerli verso la destinazione.
+    
+    Args:
+        env (Any): L'ambiente SimPy.
+        
+    Returns:
+        Any: Generatore per le attese SimPy.
     """
     interval = config["Routing_Interval"]
     while True:
 
-        if DSR:
+        if globals.config["Routing_algorithm"].get("DSR", False):
             for node in globals.edge_servers:               # Forwarding per ogni nodo
-                forward_packet_dsr_best(env, node)
-            forward_packet_dsr_best(env, globals.observer)  # Forwarding per l'observer
+                DsrStrategy.process_dsr(env, node)
+            DsrStrategy.process_dsr(env, globals.observer)  # Forwarding per l'observer
         else:
             for node in globals.edge_servers:
                 yield from node.forward_packet(env)    # Eseguiamo il forwarding
