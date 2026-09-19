@@ -15,7 +15,8 @@ from user_based_topology import get_current_time, getObserverObj
 from SaveCurrentSATOnFile import saveTLEOnFile
 from routing_Manager import load_saved_OGM, periodic_recall_Routing_monitor
 from Observer import Observer
-from simulation_OGM import process_OGM_enviroment_simulation, remove_first_30_configurations
+from simulation_OGM import process_OGM_enviroment_simulation, remove_warmup_configurations
+from routing.routing_manager import RoutingManager
 import globals
 import time
 
@@ -81,6 +82,9 @@ if __name__ == "__main__":
     print(
         f"[INFO] Using config file: {globals.config_file_path if hasattr(globals, 'config_file_path') else 'unknown'}")
 
+    # Esegui la validazione della configurazione di Routing
+    RoutingManager.validate_config(config)
+
     MaxTry = config.get("max_try", 10)
     r_algo = None
     # 1) Costruzione configurazioni
@@ -98,9 +102,9 @@ if __name__ == "__main__":
         if config["redistribuite_OGM"]:
             process_OGM_enviroment_simulation(configurations_base)
             process_OGM_enviroment_simulation(configurations_optimal)
-            # Pulizia configurazioni di riempimento
-            remove_first_30_configurations(AccPointMode.BASE)   
-            remove_first_30_configurations(AccPointMode.OPTIMAL)
+            # 4.3 Rimuovo le 30 configurazioni di riempimento delle Tabelle OGM
+            remove_warmup_configurations(AccPointMode.BASE)   
+            remove_warmup_configurations(AccPointMode.OPTIMAL)
 
         sys.exit("File of configurations created")
 

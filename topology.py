@@ -472,6 +472,11 @@ def build_EdgeServer_from_config(env, configuration, ogm_tables=None):
 def periodic_recall_Topology_monitor(env, data_configurations, OGMs_tables):
     while True:
 
+        # SICUREZZA: Interrompiamo se abbiamo finito le configurazioni
+        if globals.config_index >= len(data_configurations["configurations"]):
+            print(colorize(f"[Topology-Monitor] Reached end of configurations. Terminating monitor.", "yellow"))
+            break
+
         print("-" * 70)
         print(
             f"\t||TIME IN SIMULATION : (seconds:{env.now}) (minutes: {env.now // 60}) ||\n"
@@ -495,13 +500,18 @@ def distribute_ogm(env, data_configuration, config_riempimento):
     OGMs_table = None  # Procedo a costruirle. Quindi le imposto come None
 
     while True:
+        # SICUREZZA: Interrompiamo se abbiamo finito le configurazioni
+        if globals.config_index >= len(data_configuration["configurations"]):
+            print(colorize(f"[OGM-filling] Reached end of configurations. Terminating distribution.", "yellow"))
+            break
+
         # Avvisa quando si è sull'ultimo elemento della configurazione
-        if globals.config_index >= len(data_configuration["configurations"]) - 1:
+        if globals.config_index == len(data_configuration["configurations"]) - 1:
             print(
-                f"---!!!Raggiunto ultimo elemento di data_configuration (index {globals.config_index})"
+                f"--- Reached last configuration element (index {globals.config_index})"
             )
         else:
-            print(f"---Caricamento configurazione index {globals.config_index}")
+            print(f"--- Loading configuration index {globals.config_index}")
 
         new_edge_servers, new_global_access_point = loadConfiguration(
             env, data_configuration, OGMs_table

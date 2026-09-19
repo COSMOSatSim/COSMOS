@@ -5,7 +5,8 @@ from skyfield.api import EarthSatellite
 from collections import OrderedDict
 from user_based_topology import getSystemFromSat
 from Task import Task, findAlgorithm
-from utils import colorize, sendTask
+from utils import colorize
+from routing.routing_manager import RoutingManager
 
 
 # Leggi il file di configurazione JSON
@@ -77,6 +78,8 @@ class EdgeServer:
         self.packets = []           # Lista di pacchetti da smaltire
         self.packets_seq = 0        # contatore pacchetti spediti
         self.pkt_history = []
+
+        self.routing_manager = RoutingManager(self)
 
     def export_state(self, env):
         """
@@ -455,74 +458,61 @@ class EdgeServer:
     # Pipeline CPU -> NET
     # --------------------------------------------------
 
-    def greedy_approach(self, env, task):
-        dest_pos = globals.observer.getPositionVector(globals.ist_in_conf)
-        ranker_neighbors = []
-
-        for server in self.neighbors:
-            neighbor_distance = get_pos_proximity(dest_pos, server.getPositionVector(globals.ist_in_conf))
-            t = (server, neighbor_distance, server.is_acc_point)
-            ranker_neighbors.append(t)
-
-        ranker_neighbors.sort(key=lambda x: (not x[2], x[1]))
-
-        best_server = None
-        for neighbor_tuple in ranker_neighbors:
-            if neighbor_tuple[0].name not in task.visited:
-                best_server = neighbor_tuple[0]
-                break
-
-        if best_server:
-            yield from sendTask(env, task, self, best_server, 'GREEDY')
-
-    def deliver_to_Observer(self, env, mode, task):
-        print(f"[MODE: {mode}]")
-        task.routingEndTime = env.now
-        algo = findAlgorithm()
-        yield from sendTask(env, task, self, globals.observer, algo)
-
     def forward_packet(self, env):
-        if len(self.neighbors) > 0:
-            for task in self.tasks:
+        """
+        Delega l'intero processo decisionale al manager del routing.
+        """
+        yield from self.routing_manager.route_tasks(env, self.tasks)
 
-                if not task.arrived:
+    def transmit_task(self, env, task, receiver, algorithm):
+        """
+        Simulates the physical transmission of a task.
+        """
+        if task.ttl > 0:
+            # Gestione dell'attesa nell'env
+            if receiver.name != 'OBS':
+                bandwidth = globals.rnd.randint(globals.config["available_bandwidth"]["min"], globals.config["available_bandwidth"]["max"])
+                bandwidth = bandwidth * (1024 ** 2) if bandwidth is not None else 0.0
 
-                    if config["AP_routing_bidirectional"]:
-                        # Bidirezionale, mandiamo il task verso gli access Point
-                        if self.is_acc_point:
-                            yield from self.deliver_to_Observer(env, 'BIDIRECTIONAL', task)
-                            continue
-                    else:
-                        # Controllo che il satellite sia nella Dome
-                        if self.elev_angle >= 40:
-                            yield from self.deliver_to_Observer(env, 'MONODIRECTIONAL', task)
-                            continue
+                trasmission_time = (task.weight/bandwidth) + self.latency[receiver] if bandwidth > 0 else float('inf')
+                print(f"[{task.id}][{algorithm}] {self.name} -> {receiver.name} | Tramission-time: {trasmission_time}")
 
-                    # ! Algorithm
-                    max_neighbor = None
-                    if BATMAN:
-                        if task.dest_node in self.ogm_table:
-                            max_neighbor, max_value = find_OGM_intersection(
-                                self.ogm_table[task.dest_node], self.neighbors, task
-                            )
-                        else:
-                            print(f"[{task.id}] {task.dest_node} Route temporaneamente Sconosciuta")                   
-                    if BATMAN and GREEDY:
-                        if max_neighbor:
-                            yield from sendTask(env, task, self, max_neighbor, 'BATMAN')
-                        else:
-                            yield from self.greedy_approach(env, task)
+                energy_tx = self.compute_routing_energy(task.weight, bandwidth)
+                self.energy -= energy_tx
+                print(
+                    f"[{task.id}] Energy routing consumed by {self.name}: {energy_tx:.6f} J (remaining {self.energy:.2f})")
+            else:
+                bandwidth = globals.rnd.randint(globals.config["available_bandwidth"]["min"],
+                                                globals.config["available_bandwidth"]["max"])
+                bandwidth = bandwidth * (1024 ** 2) if bandwidth is not None else 0.0
 
-                    elif BATMAN:
-                        if max_neighbor:
-                            yield from sendTask(env, task, self, max_neighbor, 'BATMAN')
+                trasmission_time = (task.weight/bandwidth) if bandwidth > 0 else float('inf')
+                print(f"[{task.id}][{algorithm}] CONSEGNATO! {self.name} -> {receiver.name} | Tramission-time: {trasmission_time}")
 
-                    elif GREEDY:
-                        yield from self.greedy_approach(env, task)
+            task.hop += 1
+            task.ttl -= 1   
+            
+            task.add_algorithm(algorithm)       # Contiamo quale algoritmo abbiamo usato
+            
+            self.tasks.remove(task)             # Rimuoviamo il task dal Sender
+            yield env.timeout(trasmission_time)
+            
+            receiver.tasks.append(task)         # Inviamo il task al Receiver
+            
+            task.current_node = receiver.name   # Modifichiamo le informazioni sul task
 
-        # else:
-        # print(f"{self.name} NON HA PIù VICINI AI QUALI TRASMETTERE elev: {self.elev_angle}°")
-        # print("Task IDs:", [task.id for task in self.tasks])
+            if task.dest_node == receiver.name:
+                task.arrived = True
+                task.label = 'TASK_ARRIVED'
+
+            task.visited.add(receiver.name)            # Aggiorno i visitati
+
+        else:
+            # Rimuoviamo il task
+            print(f"[{task.id}] RIMOZIONE TASK DA {self.name}, TTL finito")
+            task.label = 'TTL_EXPIRED'
+            self.dead_tasks.append(task)
+            self.tasks.remove(task)
 
     def get_selection_score(self, task_type, d_cpu, d_net, D_r,
                             energy_budget_max=1.0,
@@ -587,55 +577,7 @@ class EdgeServer:
         score = w_e * B_normalized - w_R * W_norm
         return score
 
-def find_OGM_intersection(ogm_table, neighbors, task):
-    """
-    Trova l'intersezione tra i vicini reali e quelli presenti nella tabella OGM,
-    escludendo i satelliti già visitati dal task, e restituisce il vicino con il valore OGM più alto.
 
-    Args:
-        ogm_table (dict): Dizionario che mappa i nomi dei vicini ai valori OGM.
-        neighbors (dict): Dizionario vicini.
-        task (Task): Oggetto task che contiene l'insieme dei satelliti già visitati.
-
-    Returns:
-        tuple: (max_neighbor, max_value)
-            - max_neighbor: Il vicino con il valore OGM più alto (oggetto neighbor).
-            - max_value: Il valore OGM associato a max_neighbor.
-            Se non ci sono vicini validi, entrambi sono None.
-    """
-    # Costruisce un dizionario di vicini che sono sia nella tabella OGM sia tra i vicini reali,
-    # escludendo quelli già visitati dal task (per evitare loop).
-    intersection = {
-        neighbor: ogm_table[neighbor.name]
-        for neighbor in neighbors
-        if (
-            neighbor.name in ogm_table
-            and neighbor.name not in task.visited  # filtro anti-loop
-        )
-    }
-
-    # Trova il vicino con il valore OGM più alto nell'intersezione.
-    max_neighbor, max_value = None, None
-    if intersection:  # Evita ValueError se intersection è vuoto
-        max_neighbor, max_value = max(
-            intersection.items(), key=lambda item: item[1])
-
-    return max_neighbor, max_value
-
-def get_pos_proximity(pos1, pos2):
-    """
-    Calcola la distanza fra due punti in uno spazio tridimensionale
-    Args:
-        pos1: Vettore posizionale dell'obj1
-        pos2: Vettore posizionale dell'obj2
-    :return: lunghezza del segmento obj1 -> obj2
-    """
-    # Extraction of coordinate components
-    x1, y1, z1 = pos1
-    x2, y2, z2 = pos2
-
-    # Calculate the Euclidean distance
-    return sqrt((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)
 
 def build_task_csv_path(folder, at, cpu):
     csv_routing_task = ""

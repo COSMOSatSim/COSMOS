@@ -95,8 +95,8 @@
   Routing_Interval: 0.5,
   corridor_angle: 10.0,
   Routing_algorithm: {
-    BATMAN: false,
-    GREEDY: true,
+    BATMAN: true,
+    GREEDY: false,
     DSR: false,
   },
   ilp_weights: {

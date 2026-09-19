@@ -8,7 +8,7 @@ It includes functions for managing OGM propagation, packet routing, and periodic
 routing updates.
 """
 import json
-from utils import colorize, sendTask
+from utils import colorize
 from packet import Mode, Packet
 from user_based_topology import get_orbit_proximity
 from Ogm import Ogm
@@ -340,7 +340,7 @@ def forward_packet_dsr_best(env, node):
                                 node.routes[task.id].pop(0)
                         
                         if nextHop is not None:
-                            env.process(sendTask(env, task, node, nextHop, 'DSR'))
+                            env.process(node.transmit_task(env, task, nextHop, 'DSR'))
                         else:
                             # Nessuna Route Valida!
                             task.routeRequestIst = None
@@ -365,7 +365,7 @@ def forward_packet_dsr_best(env, node):
                 nextHop = neighbor_map.get(nextHopName)
 
                 if nextHop is not None:
-                    env.process(sendTask(env, task, node, nextHop, 'DSR'))
+                    env.process(node.transmit_task(env, task, nextHop, 'DSR'))
                 else:
                     # Route-Error
                     task.routeRequestIst = None
@@ -373,153 +373,9 @@ def forward_packet_dsr_best(env, node):
                     task.selected_route = []
                     task.source_DSR = node.name
 
-# def forward_packet_DSR(env, node):
 
-#     # ? Gestione dei vicini
-#     if node.name != 'OBS':
-#         neighbors = list(node.neighbors.keys()) # Vicini Nodo Normale
-#         if node.is_acc_point:
-#             neighbors += [globals.observer]     # Vicini Nodo AP
-#     else:
-#         neighbors = globals.global_access_point # Vicini Observer
 
-#     # ! Processamento dei pacchetti
-#     for pkt in node.packets[:]:
-#         # TODO : Aggiungi un controllo per evitare il Sovracarico della rete
-#         if pkt.mode == Mode.ROUTE_DISCOVERY:
-#             if pkt.id not in node.pkt_history:
-#                 if pkt.dest == node.name:
 
-#                     pkt.hop_History.append(node.name)
-#                     #print(f"\t[{pkt.taskID}] PKTID: {pkt.id} ARRIVED to {node.name}\t| HISTORY: {pkt.hop_History}")
-#                     #print(f"ABBIAMO CONCLUSO LA DISCOVERY at {env.now}. TASK : {pkt.taskID} pktid: {pkt.id}\tStack: {pkt.node_stack}")
-#                     startRouteReply(node, neighbors, pkt)
-#                 else:
-
-#                     for n in neighbors:
-#                         sendPkt(node, n, pkt)
-#                         #print(f"\t[{pkt.taskID}] PKTID: {pkt.id} ({node.name}->{n.name})\t| HISTORY: {pkt.hop_History}")
-
-#             # Nella history inserisco i DISCOVERY
-#             node.pkt_history.append(pkt.id)
-
-#         elif pkt.mode == Mode.ROUTE_REPLY:
-#             if pkt.source == node.name:
-#                 # Se la source di questo pacchetto sono io
-
-#                 #! Salviamo l'informazione che ci è giunta
-#                 if pkt.taskID not in node.routes:
-#                     node.routes[pkt.taskID] = []
-
-#                 if pkt.hop_History not in node.routes[pkt.taskID]:
-#                     node.routes[pkt.taskID].append(pkt.hop_History)
-
-#                 #print(f"[{pkt.taskID}] pktID: {pkt.id} ROURE REPLY COMPLETATA! HISTORY: {pkt.hop_History}")
-#                 # Trova il task corrispondente in node.tasks usando pkt.taskID
-#                 task = next((t for t in node.tasks if t.id == pkt.taskID), None)
-#                 # if task:
-#                 #     print(f"Trovato task: {task.id} per pktID: {pkt.id}")
-#                 # else:
-#                 #     print(f"Nessun task trovato con id {pkt.taskID} in node.tasks")
-
-#                 #print(f"CONTROLLO HISTORY DI [{pkt.taskID}] pktID: {pkt.id} time: {env.now} IMPIEGATO: {env.now - task.routeRequestIst}")
-
-#             else:
-#                 # Lo mando al prossimo nodo della rete
-#                 lastNodeStack = pkt.node_stack.pop()
-#                 nextNode = getNextNode(neighbors, lastNodeStack)
-
-#                 # TODO : Controlla questa parte
-#                 if nextNode is not None:
-#                     sendPkt(node, nextNode, pkt)
-
-#         node.packets.remove(pkt)
-
-#     # ! Route Request
-#     for task in node.tasks:
-#         if not task.routeRequestIst:
-#             # Task è stato appena eseguito, avvio fase di Discovery
-#             routeDiscovery(node, task, neighbors)
-#             #print(f"[{task.id}] FROM {node.name} START ROUTE DISCOVERY at {env.now}")
-#         else:
-
-#             if node.name == task.source_DSR:
-#                 timeout = 1             # 1s
-
-#                 # controllo se è scaduto il timeout per spedirlo
-#                 if env.now - task.routeRequestIst > timeout:
-
-#                     # Controllo se mi sono arrivate delle routes
-#                     if task.id in node.routes:
-#                         #print(f"[TRASMISSION] DEL TASK {task.id}! Ecco le route salvate:{node.routes[task.id]}")
-
-#                         nextHop = None
-#                         # Finché ho route candidate
-#                         while len(node.routes[task.id]) > 0:
-
-#                             # Prendo la più corta
-#                             bestRoute = min(node.routes[task.id], key=len).copy()
-#                             route = bestRoute.copy()
-
-#                             # Controllo il prossimo hop
-#                             nextHopName = route.pop(0)
-#                             nextHop = next((n for n in neighbors if n.name == nextHopName), None)
-
-#                             if nextHop is not None:
-#                                 task.selected_route = route
-#                                 break
-#                             else:
-#                                 node.routes[task.id].remove(bestRoute)  # elimino route non valida e continuo
-
-#                         if nextHop is not None:
-#                             #print(f"[{task.id}] ROTTA TROVATA: {bestRoute}")
-#                             env.process(sendTask(env, task, node, nextHop, 'DSR'))
-
-#                         else:
-#                             #print(f"[{task.id}] Nessuna Route Valida!")
-
-#                             # Puliamo il Task
-#                             task.routeRequestIst = None
-#                             task.RouteReply = False
-#                             task.selected_route = []
-
-#                             if task.id in node.pkt_history:
-#                                 node.pkt_history.remove(task.id)
-#                     else:
-#                         # ! TimeOut Error
-#                         #print(f"[TimeOut-Error] Per il task {task.id} non sono arrivate ancora le Routes")
-#                         timeout += 1
-
-#             elif node.name == task.dest_node:
-#                 node.arrived_tasks.append(task)
-#                 node.tasks.remove(task)
-#                 task.routingEndTime = env.now
-#                 print(f"[{task.id}] CONSEGNATO! ")
-
-#             else:
-#                 # $ Devo rispedire il task
-#                 #print(f"[{task.id}] {node.name} ha ricevuto il Task, lo reindirizza")
-#                 #print(f"\t{task.id}] Route presente nel Task : {task.selected_route}")
-
-#                 nextHopName = task.selected_route.pop(0)
-#                 nextHop = next((n for n in neighbors if n.name == nextHopName), None)
-
-#                 if nextHop is not None:
-#                     env.process(sendTask(env, task, node, nextHop, 'DSR'))
-#                 else:
-#                     # ! Route-Error
-#                     #print(f"!!!!!!!!!!!!!!!! [{node.name}] ROUTE ERROR! Il satellite {node.name} non ha contatti con {nextHopName}")
-#                     #print(f"Neighbors: {[n.name for n in neighbors]}\n")
-#                     #print(f"HO RESETTATO IL TASK {task.id}:")
-#                     #print(f"\t\t ReqIST (prima) : {task.routeRequestIst}\n\t\tROUTE: {task.selected_route}\n\t\t source: {task.source_DSR}")
-
-#                     # Puliamo il Task
-#                     task.routeRequestIst = None
-#                     task.RouteReply = False
-#                     task.selected_route = []
-#                     task.source_DSR = node.name
-#                     #print("MODIFICHE EFFETTUATE:")
-#                     #print(f"\t\t ReqIST (dopo) : {task.routeRequestIst}\n\t\tROUTE: {task.selected_route}\n\t\t source: {task.source_DSR}")
 
 # | Secondi | Millisecondi |
 # | ------- | ------------ |

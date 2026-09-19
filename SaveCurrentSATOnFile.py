@@ -34,14 +34,16 @@ def get_active_satellites():
         print(colorize("[TLE] Data received.","green"))
         return tle_data
     else:
-        print(f"Errore nella richiesta: {response.status_code}")
+        print(colorize(f"[TLE] Error: {response.status_code}", "red"))
         return None
 
 
 def saveTLEOnFile() -> tle_data:
     _dir, filename ="./data", "tle_data.txt"
-    tle_data = get_active_satellites()
     file_path = f"{_dir}/{filename}"
+    
+    # 1. Attempt to download
+    tle_data = get_active_satellites()
     
     # Check dir
     if not os.path.exists(_dir):
@@ -60,7 +62,23 @@ def saveTLEOnFile() -> tle_data:
         except IOError as e:
             sys.exit(colorize(f"Errore nel salvataggio del file: {e}","red"))
     else:
-        print("Nessun dato TLE disponibile per il salvataggio.")
+        # Fallback
+        print(colorize("[TLE] TLE not available online. Attempting to use cached data...", "yellow"))
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r") as file:
+                    tle_data_cached = file.read().strip().splitlines()
+                    print(colorize(f"[TLE] Fallback successful. Loaded cached TLE data from '{file_path}'", "green"))
+                    return tle_data_cached
+            except IOError as e:
+                sys.exit(colorize(f"Error reading cached TLE data: {e}", "red"))
+        else:
+            error_msg = (
+                "[ERROR] It was not possible to download TLE data from CelesTrak (HTTP Error) "
+                "and no cached data is present in 'data/'. Please try again later or manually "
+                "provide 'data/tle_data.txt'."
+            )
+            sys.exit(colorize(error_msg, "red"))
 
 
 def openTLEFromFile(file_path: str = "./data/tle_data.txt") -> tle_data:
