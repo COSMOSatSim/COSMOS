@@ -17,7 +17,7 @@ class BatmanStrategy(RoutingStrategy):
     def route(self, env, manager, task):
         max_neighbor = None
         if task.dest_node in manager.node.ogm_table:
-            max_neighbor, _ = manager.find_ogm_intersection(
+            max_neighbor, _ = self.find_ogm_intersection(
                 manager.node.ogm_table[task.dest_node], manager.node.neighbors, task
             )
         else:
@@ -26,22 +26,64 @@ class BatmanStrategy(RoutingStrategy):
         if max_neighbor:
             yield from manager.node.transmit_task(env, task, max_neighbor, 'BATMAN')
 
+    @staticmethod
+    def find_ogm_intersection(ogm_table, neighbors, task):
+        intersection = {
+            neighbor: ogm_table[neighbor.name]
+            for neighbor in neighbors
+            if (
+                neighbor.name in ogm_table
+                and neighbor.name not in task.visited
+            )
+        }
+
+        max_neighbor, max_value = None, None
+        if intersection:
+            max_neighbor, max_value = max(
+                intersection.items(), key=lambda item: item[1])
+
+        return max_neighbor, max_value
+
+
 class GreedyStrategy(RoutingStrategy):
     def route(self, env, manager, task):
-        yield from manager.greedy_approach(env, task)
+        yield from self.greedy_approach(env, manager, task)
+
+    @staticmethod
+    def greedy_approach(env, manager, task):
+        dest_pos = globals.observer.getPositionVector(globals.ist_in_conf)
+        ranker_neighbors = []
+
+        for server in manager.node.neighbors:
+            neighbor_distance = RoutingManager.get_pos_proximity(dest_pos, server.getPositionVector(globals.ist_in_conf))
+            t = (server, neighbor_distance, server.is_acc_point)
+            ranker_neighbors.append(t)
+
+        ranker_neighbors.sort(key=lambda x: (not x[2], x[1]))
+
+        best_server = None
+        for neighbor_tuple in ranker_neighbors:
+            if neighbor_tuple[0].name not in task.visited:
+                best_server = neighbor_tuple[0]
+                break
+
+        if best_server:
+            yield from manager.node.transmit_task(env, task, best_server, 'GREEDY')
+
 
 class BatmanGreedyStrategy(RoutingStrategy):
     def route(self, env, manager, task):
         max_neighbor = None
         if task.dest_node in manager.node.ogm_table:
-            max_neighbor, _ = manager.find_ogm_intersection(
+            max_neighbor, _ = BatmanStrategy.find_ogm_intersection(
                 manager.node.ogm_table[task.dest_node], manager.node.neighbors, task
             )
             
         if max_neighbor:
             yield from manager.node.transmit_task(env, task, max_neighbor, 'BATMAN')
         else:
-            yield from manager.greedy_approach(env, task)
+            yield from GreedyStrategy.greedy_approach(env, manager, task)
+
 
 # ---------------------------------------------------------
 # ROUTING MANAGER
@@ -104,49 +146,11 @@ class RoutingManager:
                 # Esecuzione dell'algoritmo tramite la strategia scelta
                 yield from self.strategy.route(env, self, task)
                 
-    def greedy_approach(self, env, task):
-        dest_pos = globals.observer.getPositionVector(globals.ist_in_conf)
-        ranker_neighbors = []
-
-        for server in self.node.neighbors:
-            neighbor_distance = self.get_pos_proximity(dest_pos, server.getPositionVector(globals.ist_in_conf))
-            t = (server, neighbor_distance, server.is_acc_point)
-            ranker_neighbors.append(t)
-
-        ranker_neighbors.sort(key=lambda x: (not x[2], x[1]))
-
-        best_server = None
-        for neighbor_tuple in ranker_neighbors:
-            if neighbor_tuple[0].name not in task.visited:
-                best_server = neighbor_tuple[0]
-                break
-
-        if best_server:
-            yield from self.node.transmit_task(env, task, best_server, 'GREEDY')
-
     def deliver_to_Observer(self, env, mode, task):
         # print(f"[MODE: {mode}]")
         task.routingEndTime = env.now
         algo = findAlgorithm()
         yield from self.node.transmit_task(env, task, globals.observer, algo)
-
-    @staticmethod
-    def find_ogm_intersection(ogm_table, neighbors, task):
-        intersection = {
-            neighbor: ogm_table[neighbor.name]
-            for neighbor in neighbors
-            if (
-                neighbor.name in ogm_table
-                and neighbor.name not in task.visited
-            )
-        }
-
-        max_neighbor, max_value = None, None
-        if intersection:
-            max_neighbor, max_value = max(
-                intersection.items(), key=lambda item: item[1])
-
-        return max_neighbor, max_value
 
     @staticmethod
     def get_pos_proximity(pos1, pos2):
