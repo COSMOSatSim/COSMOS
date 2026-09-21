@@ -14,7 +14,7 @@ import json5, csv
 import os
 from pprint import pprint
 
-from utils import colorize
+from utils import colorize, _win_longpath
 
 config = globals.config
 resolution = globals.resolution_config
@@ -81,75 +81,13 @@ class Task:
             return self.hop, self.routingInitTime, "N/A", "N/A"
 
 
-def _win_longpath(p: str) -> str:
-    """Rende il path compatibile con i percorsi lunghi di Windows usando il prefisso \\?\\."""
-    if os.name != "nt":
-        return p
-    # normalizza/assolutizza
-    p = os.path.abspath(p)
-    if p.startswith("\\\\?\\"):
-        return p  # già esteso
-    if p.startswith("\\\\"):        # UNC -> \\?\UNC\server\share\...
-        return "\\\\?\\UNC" + p[1:]
-    return "\\\\?\\" + p
 
 
 
-def assign_resolution(required_ram, required_disk):
-    # Normalizzazione pesata
-    norm_ram = required_ram / config["required_ram"]["max"]
-    norm_disk = required_disk / config["required_disk"]["max"]
-    weight = 0.5 * norm_ram + 0.5 * norm_disk
-
-    # Mappatura del peso a una categoria
-    if weight <= 0.25:
-        category = "Low"
-    elif weight <= 0.5:
-        category = "Medium"
-    elif weight <= 0.75:
-        category = "High"
-    else:
-        category = "Very High"
-
-    min_value = resolution[category]["min"]
-    max_value = resolution[category]["max"]
-
-    min_byte = dim_to_Byte(min_value["dim"], min_value["value"])
-    max_byte = dim_to_Byte(max_value["dim"], max_value["value"])
-
-    resolution_value = globals.rnd.randint(min_byte, max_byte)  # Valore di Ritorno in Byte
-    return category, resolution_value
 
 
-def dim_to_Byte(dim, value):
-    """
-    Converts megabytes (MB) or kilobytes (KB) to bytes.
-    :param dim: Dimension unit ('MB' or 'KB').
-    :param value: Value in the given unit.
-    :return: Value in bytes.
-    """
-    if dim == 'MB':
-        return int(value * 1000 * 1000)
-    if dim == 'KB':
-        return int(value * 1000)
 
 
-def byte_to_dim(byte_value):
-    """
-    Converts bytes to the most suitable unit (MB, KB, or B) and returns a formatted string.
-    :param byte_value: Value in bytes.
-    :return: String in the format "value unit" (e.g., "2.5 MB").
-    """
-    if byte_value >= 1000 * 1000:
-        value = byte_value / (1000 * 1000)
-        unit = 'MB'
-    elif byte_value >= 1000:
-        value = byte_value / 1000
-        unit = 'KB'
-    else:
-        value = byte_value
-        unit = 'B'
-    return f"{value:.2f} {unit}"
 
 
 def get_algo_percentages(t):
@@ -165,22 +103,10 @@ def get_algo_percentages(t):
     return algo_perc  # se non ci sono algoritmi rimane {}
 
 
-def findAlgorithm():
-
-    if BATMAN and GREEDY and not DSR:
-        return "DINAMICO"
-    elif BATMAN and not GREEDY and not DSR:
-        return "BATMAN"
-    elif GREEDY and not BATMAN and not DSR:
-        return "GREEDY"
-    elif DSR and not BATMAN and not GREEDY:
-        return "DSR"
-    else:
-        sys.exit(
-            f"C'è un problema con gli algoritmi: DSR:{DSR} GREEDY:{GREEDY} BATMAN:{BATMAN}")
 
 
 def makeSummary(folder, TArr, TExp, Tsob, ToS):
+    from routing.routing_manager import findAlgorithm
     file = f"SUMMARY[{findAlgorithm()}]_Rout_interval_{str(config.get('Routing_Interval')).replace(',', '.')}.csv"
 
     # 1) Assicurati che la cartella esista (usando il path assoluto)
@@ -219,9 +145,6 @@ def convert_task_list_in_dict(task_list : list) -> dict:
         result[key] = elem
         # stampa lo stato corrente del dizionario dopo ogni inserimento
     return result
-
-def get_routing_hop_tasks(task_id: int) -> int:
-    pass
 
 
 def generate_Tasks_Status(csv_filename, folder):

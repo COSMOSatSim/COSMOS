@@ -4,9 +4,9 @@ import sys
 from math import sqrt
 from typing import Any, List, Dict, Tuple, Optional
 
-from Task import findAlgorithm, Task
+from routing.task import Task
 from utils import colorize
-from packet import Mode, Packet
+from routing.packet import Mode, Packet
 
 
 # ---------------------------------------------------------
@@ -469,3 +469,19 @@ class RoutingManager:
         x1, y1, z1 = pos1
         x2, y2, z2 = pos2
         return sqrt((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)
+
+def findAlgorithm() -> str:
+    BATMAN = globals.config["Routing_algorithm"]["BATMAN"]
+    GREEDY = globals.config["Routing_algorithm"]["GREEDY"]
+    DSR = globals.config["Routing_algorithm"]["DSR"]
+    
+    if BATMAN and GREEDY and not DSR:
+        return "DINAMICO"
+    elif BATMAN and not GREEDY and not DSR:
+        return "BATMAN"
+    elif GREEDY and not BATMAN and not DSR:
+        return "GREEDY"
+    elif DSR and not BATMAN and not GREEDY:
+        return "DSR"
+    else:
+        sys.exit(f"C'è un problema con gli algoritmi: DSR:{DSR} GREEDY:{GREEDY} BATMAN:{BATMAN}")

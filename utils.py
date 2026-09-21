@@ -79,3 +79,16 @@ def print_dict(d: dict, level: int = 0) -> None:
                 print(f"{indent}[{i}]:\t{item}")
     else:
         print(f"{indent}{d}")
+
+import os
+def _win_longpath(p: str) -> str:
+    """Rende il path compatibile con i percorsi lunghi di Windows usando il prefisso \\?\\."""
+    if os.name != "nt":
+        return p
+    # normalizza/assolutizza
+    p = os.path.abspath(p)
+    if p.startswith("\\\\?\\"):
+        return p  # già esteso
+    if p.startswith("\\\\"):        # UNC -> \\?\UNC\server\share\...
+        return "\\\\?\\UNC" + p[1:]
+    return "\\\\?\\" + p

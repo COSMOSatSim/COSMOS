@@ -4,7 +4,8 @@ import simpy
 from skyfield.api import EarthSatellite
 from collections import OrderedDict
 from user_based_topology import getSystemFromSat
-from Task import Task, findAlgorithm
+from routing.task import Task
+from routing.routing_manager import findAlgorithm
 from utils import colorize
 from routing.routing_manager import RoutingManager
 

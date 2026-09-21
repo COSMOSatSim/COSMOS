@@ -7,7 +7,8 @@ import json
 from EdgeServer import build_task_csv_path
 from enums import AccPointMode
 import ILP_simulation, simulation
-from Task import findAlgorithm, generate_Tasks_Status, convert_task_list_in_dict
+from routing.task import generate_Tasks_Status, convert_task_list_in_dict
+from routing.routing_manager import findAlgorithm
 from simulation import generate_tasks
 from topology import build_configurations, get_global_mode, load_saved_configuration, loadConfiguration, \
     periodic_recall_Topology_monitor, string_to_skyfield_time
@@ -21,21 +22,11 @@ from routing.routing_manager import RoutingManager
 import globals
 import time
 
-from utils import colorize
+from utils import colorize, _win_longpath
 
 simulation_dataset = []
 
 
-def _win_longpath(p: str) -> str:
-    """Rende il path compatibile con i percorsi lunghi di Windows usando il prefisso \\?\\."""
-    if os.name != "nt":
-        return p
-    p = os.path.abspath(p)
-    if p.startswith("\\\\?\\"):
-        return p
-    if p.startswith("\\\\"):  # UNC path
-        return "\\\\?\\UNC" + p[1:]
-    return "\\\\?\\" + p
 
 
 # Aggiungi il nuovo processo di raccolta dati

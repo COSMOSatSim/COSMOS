@@ -1,6 +1,6 @@
 import globals
 import experiments
-from Task import Task
+from routing.task import Task
 import ILP_simulation
 
 hop = 0  # Inizializza la variabile hop a zero

@@ -1,5 +1,5 @@
 import globals
-from Task import Task
+from routing.task import Task
 from sec_ilp_snapshot_v3 import solve_on_Ek, Snapshot, SENState, QueueTask, alpha_from_physics, solve_on_Ek_hierarchical
 
 config = globals.config
