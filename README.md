@@ -23,8 +23,6 @@ The project follows a clean, modular architecture:
 - **`Observer.py`**: Represents the ground entities (users) that generate and offload tasks to the satellite network.
 - **`globals.py`**: Centralized state management.
 
-*(Note: Experimental Naval Orbit mechanics have been fully decoupled and can be found in the untracked `NavalOrbit/` module).*
-
 ---
 
 ## 📥 Requirements
@@ -74,9 +72,9 @@ If you are running on an HPC cluster managed by Slurm, use the highly optimized 
    ```bash
    python slurm_jobs/configsGenerator.py
    ```
-2. Submit the chunked array job to the cluster:
+2. Submit the chunked array job to the cluster (Work only in the cluster):
    ```bash
-   bash slurm_jobs/submit_array.sh
+   sbatch slurm_jobs/submit_array.sh
    ```
 
 ---
