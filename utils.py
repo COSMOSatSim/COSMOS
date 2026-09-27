@@ -6,7 +6,6 @@ calculating transmission times, and colorizing terminal output for better
 readability.
 """
 
-import globals
 import os
 import sys
 import json

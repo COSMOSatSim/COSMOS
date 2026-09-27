@@ -98,7 +98,7 @@ if __name__ == "__main__":
             remove_warmup_configurations(AccPointMode.BASE)   
             remove_warmup_configurations(AccPointMode.OPTIMAL)
 
-        sys.exit("File of configurations created")
+        print("File of configurations created"); sys.exit(0)
 
     # 2) Caricamento o creazione topologia
     if config.get("Load_Configuration", False):
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         globals.edge_servers, globals.global_access_point = loadConfiguration(env, globals.data_configurations, globals.OGMs_tables)  # Carico la topologia in base alla modalità
         env.process(periodic_recall_Topology_monitor(env, globals.data_configurations, globals.OGMs_tables))
     else:
-        sys.exit("Nessuna Configurazione richiesta!")
+        print("Nessuna Configurazione richiesta!"); sys.exit(0)
 
     globals.observer = Observer(env, getObserverObj())  # Singleton Observer
     env.process(routing_simulation_process(env))
