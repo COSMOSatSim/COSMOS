@@ -1,51 +1,480 @@
 """
-Module for creating and managing the satellite topology in a LEO constellation.
+Module to fetch and save current TLE data of active satellites.
 
-This module provides functions to create the satellite topology based
-on the current satellite positions and their interconnectivity. It includes
-utilities for computing distances, managing satellite events, and updating
-the network topology dynamically during the simulation.
+This module retrieves the latest TLE (Two-Line Element) data for active
+satellites from Celestrak and saves it to a local file for use in
+satellite network simulations.
 """
 
+import os
+import json5, json
+from math import sqrt
+import math
 import sys
-import globals
-import json, json5
-import threading
-from tqdm import tqdm
-from skyfield.api import EarthSatellite, load
+import numpy as np
+from datetime import timedelta, datetime
+import requests
+from skyfield.api import load, EarthSatellite, wgs84
 from skyfield.timelib import Time
 from skyfield.toposlib import GeographicPosition
-from EdgeServer import EdgeServer
-from enums import AccPointMode
-from user_based_topology import (
-    OBSERVER,
-    get_orbit_proximity,
-    get_current_time,
-    getLatency,
-    are_satellites_equal,
-    getAllSatOnMe,
-    getAllSatOnLine,
-    compute_distances_from_target_satellite,
-    create_satellite_Identity_card,
-    advance_time,
-    ts,
-)
-from datetime import datetime, timedelta, timezone
-from enums import AccPointMode, GenConfigsOutput, tle_data, Topology
+from topology.Satellite import Satellite
+from enums import AccPointMode, Topology, tle_data, GenConfigsOutput
+import globals
 from utils import colorize
-import numpy as np
+from tqdm import tqdm
+from EdgeServer import EdgeServer
 
-# Converti il tempo in UTC e formatta
-time_top = datetime.now(timezone.utc)  # O il tuo oggetto datetime
+
+starlink_url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=STARLINK&FORMAT=TLE"
+all_active_url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=ACTIVE&FORMAT=TLE"
 
 # Leggi il file di configurazione JSON
 config = globals.config
 
-# Gestione thread
-lock = threading.Lock()  # Meccanismo di lock
+ts = load.timescale()  # ts : time management with astronomical time
+time_now = ts.now()
+
+#Funzione che ritorna i satelliti attivi in formato tle 
+def get_active_satellites():
+    """
+    Cosa fa:
+    Questo script fa una richiesta al NOMAD per avere tutti i  dati TLE dei satelliti Starlink.
+    In seguito li salva in un File: ./Data/tle_data.txt
+    """
+    url = starlink_url
+    print(colorize("[TLE] Requesting Data...","yellow"))
+    response = requests.get(url) # ! Request
+    if response.status_code == 200:
+        tle_data = response.text.strip().splitlines() # ? TLE
+        print(colorize("[TLE] Data received.","green"))
+        return tle_data
+    else:
+        print(colorize(f"[TLE] Error: {response.status_code}", "red"))
+        return None
 
 
-def compute_distances_from_target_sw(sat, closerServer_Sorted, t):
+def saveTLEOnFile() -> tle_data:
+    _dir, filename ="./data", "tle_data.txt"
+    file_path = f"{_dir}/{filename}"
+    
+    # 1. Attempt to download
+    tle_data = get_active_satellites()
+    
+    # Check dir
+    if not os.path.exists(_dir):
+        try:
+            os.makedirs(_dir, exist_ok=True)
+        except OSError as e:
+            sys.exit(colorize(f"ERRORE: {e}","red"))
+
+    if tle_data:
+        try:
+            with open(file_path, "w") as file:
+                for line in tle_data:
+                    file.write(line + "\n")
+            print(colorize(f"[TLE] Elaborati Correttamente '{file_path}'","green"))
+            return tle_data
+        except IOError as e:
+            sys.exit(colorize(f"Errore nel salvataggio del file: {e}","red"))
+    else:
+        # Fallback
+        print(colorize("[TLE] TLE not available online. Attempting to use cached data...", "yellow"))
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r") as file:
+                    tle_data_cached = file.read().strip().splitlines()
+                    print(colorize(f"[TLE] Fallback successful. Loaded cached TLE data from '{file_path}'", "green"))
+                    return tle_data_cached
+            except IOError as e:
+                sys.exit(colorize(f"Error reading cached TLE data: {e}", "red"))
+        else:
+            error_msg = (
+                "[ERROR] It was not possible to download TLE data from CelesTrak (HTTP Error) "
+                "and no cached data is present in 'data/'. Please try again later or manually "
+                "provide 'data/tle_data.txt'."
+            )
+            sys.exit(colorize(error_msg, "red"))
+
+
+def openTLEFromFile(file_path: str = "./data/tle_data.txt") -> tle_data:
+    if not os.path.exists(file_path):
+        sys.exit(colorize(f"Errore: Il file '{file_path}' non esiste. Assicurati di aver eseguito 'saveTLEOnFile()' prima.","red"))
+    
+    try:
+        with open(file_path, "r") as file:
+            tle_data = file.read().strip().splitlines()
+            print(colorize(f"[TLE] Dati TLE caricati da '{file_path}'","green"))
+            return tle_data
+    except IOError as e:
+        sys.exit(colorize(f"Errore nella lettura del file: {e}","red"))
+
+
+def get_current_time() -> Time:
+    """
+    Get the current time using Skyfield's timescale.
+
+    This function loads the timescale from the Skyfield library and returns the current time.
+
+    Returns:
+        skyfield.timelib.Time: The current time according to Skyfield's timescale.
+    """
+    ts = load.timescale()  # Carica la scala temporale di Skyfield
+    return ts.now()
+
+
+def advance_time(current_time, minutes_to_add):
+    """
+    Advance the given Skyfield Time object by a specified number of minutes.
+
+    Args:
+        current_time (skyfield.timelib.Time): The current time from ts.now().
+        minutes_to_add (int): The number of minutes to add to the current time.
+
+    Returns:
+        skyfield.timelib.Time: The new time advanced by the specified number of minutes.
+    """
+    # Convert the Skyfield Time object to a datetime object
+    current_datetime = current_time.utc_datetime()
+
+    # Add the specified number of minutes
+    new_datetime = current_datetime + timedelta(minutes=minutes_to_add)
+
+    # Convert the new datetime object back to a Skyfield Time object
+    ts = load.timescale()
+    new_time = ts.from_datetime(new_datetime)
+
+    return new_time
+
+
+# Getter Topos 'Observer' object
+def getObserverObj(location=config["simulation_location"]):
+    if location in config["locations"]:
+        lat = config["locations"][location]["lat"]
+        lon = config["locations"][location]["lon"]
+        return wgs84.latlon(lat, lon)
+    else:
+        sys.exit(
+            f"Errore: The User Position '{location}' not found in the config file."
+        )
+
+
+# Getter reference system from a Satellite
+def getSystemFromSat(satellite, time, Geocentric=False):
+    """
+    Get the reference system from a satellite.
+
+    Args:
+        satellite (EarthSatellite): The satellite object.
+        Geocentric (bool): If False, return the system relative to the observer's point of view.
+                           If True, return the satellite's position relative to the center of the Earth (Geocentric).
+        time (Time): The time at which to get the satellite's position.
+    Returns:
+        Geocentric or Topocentric: The reference system of the satellite at the given time.
+    """
+    if Geocentric:  # Satellite Position from the Center of Earth
+        return satellite.at(time)  # return geocentric system
+    else:  # Satellite Position from the Observer Position
+        difference = (
+            satellite - getObserverObj()
+        )  # Calculate the difference between the satellite's position and the observer's position to get the topocentric reference system
+        return difference.at(time)  # return topocentric system
+
+
+def get_pos_proximity(pos1, pos2):
+    """
+    Calcola la distanza fra due punti in uno spazio tridimensionale
+    Args:
+        pos1: Vettore posizionale dell'obj1
+        pos2: Vettore posizionale dell'obj2
+    :return: lunghezza del segmento obj1 -> obj2
+    """
+    # Extraction of coordinate components
+    x1, y1, z1 = pos1
+    x2, y2, z2 = pos2
+
+    # Calculate the Euclidean distance
+    return sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2)
+
+
+def get_orbit_proximity(sat1, sat2, t):
+    """
+    Calculates the distance between two satellites in kilometers.
+
+    Args:
+        satellite1: EarthSatellite object representing the first satellite.
+        satellite2: EarthSatellite object representing the second satellite.
+        timestamp: Skyfield Time object representing the moment of calculation.
+
+    Returns: The distance between the two satellites in kilometers.
+    """
+    # Get geocentric positions in km
+    pos_sat1 = getSystemFromSat(sat1, t, True).position.km
+    pos_sat2 = getSystemFromSat(sat2, t, True).position.km
+
+    # Extraction of coordinate components
+    x1, y1, z1 = pos_sat1
+    x2, y2, z2 = pos_sat2
+
+    return sqrt(
+        (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
+    )  # Calculate the Euclidean distance
+
+
+def are_satellites_equal(sat1, sat2):
+    """
+    Compare two satellites to check if they are the same based on their name and satellite number.
+
+    Args:
+        sat1: EarthSatellite object representing the first satellite.
+        sat2: EarthSatellite object representing the second satellite.
+
+    Returns:
+        bool: True if the satellites are the same, False otherwise.
+    """
+    # Confronta per nome e numero satnum
+    return sat1.name == sat2.name and sat1.model.satnum == sat2.model.satnum
+
+
+def getLatency(distance: float):
+    LIGHT_SPEED = 299792458  # m/s
+    # convert distance to meters
+    distance_m = distance * 1000
+
+    return distance_m / LIGHT_SPEED  # Calculate latency in seconds
+
+
+# ---------------------------------------------------------------------------- #
+#                                    Filter                                    #
+# ---------------------------------------------------------------------------- #
+
+
+def filterSatellitesInView(satellite, t):
+    """
+    Input: Satellites
+    Output: Boolean value | True : sat is coming in our direction
+                          | False : sat is not coming in our direction
+    """
+    sys = getSystemFromSat(satellite, t)
+
+    velocity = sys.velocity
+
+    r = sys.position.km  # r è la posizione relativa del SAT rispetto all'observer
+    r_unit = r / globals.np.linalg.norm(r)  # Vettore unitario
+    v_rel = globals.np.dot(
+        velocity.km_per_s, r_unit
+    )  # Calcoliamo la velocità calcolando il prodotto scalare tra r e r_unit
+
+    return True if v_rel < 0 else False
+
+
+def getAllSatOnLine(
+    t: Time,
+    tle_data,
+    pos_A: GeographicPosition,
+    pos_B: GeographicPosition,
+    corridor_deg: float = config["corridor_angle"],
+    Phi_max: int = config["Phi_max"],
+    Buffer_zone: int = config["Phi_buffer"],
+    ap_mode_a: AccPointMode = AccPointMode.BASE,
+    num_acc_point_A: int = config["access_point"]
+) -> Topology:
+    """
+    This function return all satellites between a given point A,
+    and a given point B, in a specific time t.
+    It use the TLE data to find all satellites in the line of sight between A and B,
+    including the dome/buffer zone exactly above A and B.
+    """
+    corridor_rad = np.radians(corridor_deg)  
+    BZED = Phi_max - Buffer_zone 
+    BZED_rad = np.radians(BZED) # Convertito una volta sola fuori dal ciclo
+    
+    sat_on_line = [] 
+    
+    # 1. Calcolo vettori osservatori (Geocentrici)
+    vA_km = pos_A.at(t).position.km
+    vB_km = pos_B.at(t).position.km
+
+    # Normalizzati (Vettori Zenit)
+    vA = vA_km / np.linalg.norm(vA_km)
+    vB = vB_km / np.linalg.norm(vB_km)
+
+    # Gestione caso A = B
+    if np.linalg.norm(vA - vB) < 1e-7:
+        print(colorize("[DEBUG] A e B sono uguali. Utilizzare la funzione su punto singolo.", "yellow"))
+        # Inserisci qui la logica di fallback se serve
+        pass
+
+    else:
+        # 2. Costruzione del piano del corridoio
+        cross_prod = np.cross(vA, vB) 
+        norm = np.linalg.norm(cross_prod) 
+
+        # Caso limite: A e B opposti
+        if norm < 1e-7:
+            v_ref = np.array([0, 0, 1]) 
+            if np.linalg.norm(np.cross(vA, v_ref)) < 1e-7:
+                v_ref = np.array([1, 0, 0])
+            cross_prod = np.cross(vA, v_ref)
+            norm = np.linalg.norm(cross_prod)
+
+            if norm < 1e-7:
+                sys.exit(colorize("[ERROR]: Non è possibile definire un piano per A e B !!! Verifica i dati di input. ", "red"))
+
+        # Vettore normale del piano e "Muri"
+        n = cross_prod / norm
+        nA = np.cross(n, vA)
+        nB = np.cross(vB, n)
+
+        # 3. FASE ACQUISIZIONE
+        for i in range(0, len(tle_data), 3):
+            name = tle_data[i].strip()
+            line1 = tle_data[i + 1].strip()
+            line2 = tle_data[i + 2].strip()
+
+            # Creazione satellite e calcolo posizione orbitale (LA PARTE PIÙ PESANTE, FATTA UNA VOLTA SOLA)
+            satellite = EarthSatellite(line1, line2, name, ts)
+            vP_km = satellite.at(t).position.km  
+            vP = vP_km / np.linalg.norm(vP_km)  
+
+            # --- FASE 1: Verifica Corridoio Centrale ---
+            # Angolo rispetto al piano centrale
+            theta = np.arcsin(abs(np.clip(np.dot(n, vP), -1.0, 1.0)))
+            in_corridor_inf = theta < corridor_rad
+            # Verifica che sia racchiuso tra A e B
+            between_walls = np.dot(vP, nA) >= 0 and np.dot(vP, nB) >= 0
+
+            # --- FASE 2: Verifica Cupole (Metodo Topocentrico Vettoriale) ---
+            # Vettore da A al satellite
+            top_A = vP_km - vA_km
+            top_A_norm = top_A / np.linalg.norm(top_A)
+            alt_A_rad = np.arcsin(np.clip(np.dot(top_A_norm, vA), -1.0, 1.0))
+
+            # Vettore da B al satellite
+            top_B = vP_km - vB_km
+            top_B_norm = top_B / np.linalg.norm(top_B)
+            alt_B_rad = np.arcsin(np.clip(np.dot(top_B_norm, vB), -1.0, 1.0))
+
+            # --- UNIONE LOGICA ---
+            # È valido se si trova nel corridoio OPPURE sopra l'orizzonte BZED di A OPPURE di B
+            if (in_corridor_inf and between_walls) or (alt_A_rad > BZED_rad) or (alt_B_rad > BZED_rad):
+                # ! : controlla 
+                # TODO : CONTROLLA CHE QUESTA SEZIONE SIA GIUSTA E FAI IL COMMIT
+                sat_on_line.append(Satellite(satellite, np.linalg.norm(vP_km - vA_km), (name, line1, line2), False))
+        
+        # Sorting Satellite by distance from A
+        sat_on_line.sort(key=lambda sat: np.linalg.norm(sat.satellite.at(t).position.km - vA_km))  
+        
+        
+        if num_acc_point_A > len(sat_on_line):
+            num_acc_point_A = len(sat_on_line)//2 # Non ci sono abbastanza satelliti da usare come AP
+            print(colorize(f"WARNING: Not enough satellites to satisfy the request. The number of access points has been set to {num_acc_point_A}.", "orange"))
+        
+        
+        counter = 0 # Contatore degli access Point
+        # Determino Access Points
+        for sat in sat_on_line:
+            
+            if counter >= num_acc_point_A:
+                # Ho tutti gli AP di A, posso uscire
+                break
+            
+            # Check della modalità
+            if ap_mode_a == AccPointMode.BASE:
+                can_take = counter < num_acc_point_A
+            elif ap_mode_a == AccPointMode.OPTIMAL:
+                can_take = counter < num_acc_point_A and filterSatellitesInView(sat, t)
+            
+            if can_take:
+                sat.is_acc_point = True
+                counter += 1
+                
+        return sat_on_line
+
+
+# ---------------------------------------------------------------------------- #
+def getAllSatOnMe(
+    t,
+    tle_data,
+    ap_mode: AccPointMode,
+    Phi_max=config["Phi_max"],
+    Num_Access_point=config["access_point"],
+):
+    """
+    This function return all the satellite above a given point
+
+    Args:
+        t (Time): time of observation.
+        tle_data (tle_data): TLE data of the satellites.
+        point_pos (GeographicPosition): position of specific point.
+        Phi_max (float): Elevation Angle of a given point to search satellite in that area.
+        num_acc_point (int): Number of acc point we are searching in that area
+
+    """
+    buffer_Phi = Phi_max - config["Phi_buffer"]  # Angle of a Buffer Zone
+    satellites_dome, satellites_buffer = [], []
+
+    # Get all satellites within the observer's dome and buffer zone
+    for i in range(0, len(tle_data), 3):
+        name = tle_data[i].strip()
+        line1 = tle_data[i + 1].strip()
+        line2 = tle_data[i + 2].strip()
+
+        satellite = EarthSatellite(
+            line1, line2, name, ts
+        )  # Converting tle Data in SGP4 Satellite Object
+        syst = getSystemFromSat(satellite, t)  # reference system
+
+        alt, az, distance = (
+            syst.altaz()
+        )  # alt : Altitude in degrees relative to the observer
+        # az : Sat Azimuth Angle relative to the observer
+        # distance: distance Sat - Observer
+        if alt.degrees > buffer_Phi:
+            if alt.degrees > Phi_max:
+                # Satellite in the Dome
+                satellites_dome.append(
+                    Satellite(satellite, distance.km, (name, line1, line2), False)
+                )
+            else:
+                # Satellite in the Buffer Zone
+                satellites_buffer.append(
+                    Satellite(satellite, distance.km, (name, line1, line2), False)
+                )
+
+    # Ordino i satelliti in base alla posizione rispetto all'utente
+    sat_sort_dome = sorted(satellites_dome, key=lambda s: s.distance)
+    sat_sort_buff = sorted(satellites_buffer, key=lambda s: s.distance)
+
+    counter = 0
+    if Num_Access_point > len(sat_sort_dome):
+        Num_Access_point = (
+            len(sat_sort_dome) // 2
+        )  # Non ci sono abbastanza satelliti da soddisfare la richiesta di Access_point
+        print(
+            f"WARNING: Not enough satellites to satisfy the request. The number of access points has been set to {Num_Access_point}."
+        )
+
+    # Determino Access Points
+    for sat in sat_sort_dome:
+        if counter >= Num_Access_point:
+            break
+        # Decido se eseguire il filtro o meno
+        if ap_mode == AccPointMode.BASE:
+            can_take = counter < Num_Access_point
+        elif ap_mode == AccPointMode.OPTIMAL:
+            can_take = counter < Num_Access_point and filterSatellitesInView(
+                sat.satellite, t
+            )
+
+        if can_take:
+            sat.is_acc_point = True
+            counter += 1
+
+
+    return sat_sort_dome, sat_sort_buff
+
+
+def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
     """
     Compute the distances from the target satellite to other satellites.
 
@@ -57,69 +486,82 @@ def compute_distances_from_target_sw(sat, closerServer_Sorted, t):
     """
 
     vector_Sat_Topology = []
-    for i in range(0, len(closerServer_Sorted)):
-        if are_satellites_equal(sat.satellite, closerServer_Sorted[i].satellite):
+    for i in range(0, len(closerSatellite_Sorted)):
+        if are_satellites_equal(sat.satellite, closerSatellite_Sorted[i].satellite):
             pass
         else:
             proximity = get_orbit_proximity(
-                sat.get_satellite(), closerServer_Sorted[i].get_satellite(), t
+                sat.satellite, closerSatellite_Sorted[i].satellite, t
             )
             if proximity < config["Laser_Communication_Range"]:  # Check laser distance
-                vector_Sat_Topology.append((closerServer_Sorted[i], proximity))
+                latency = getLatency(proximity)  # Calculate latency
+                vector_Sat_Topology.append(
+                    (closerSatellite_Sorted[i].satellite.name, proximity, latency)
+                )
 
-    sat_vector_Topology_sorted = sorted(vector_Sat_Topology, key=lambda x: x[1])
+    sat_vector_Topology_sorted = sorted(
+        vector_Sat_Topology, key=lambda x: x[1]
+    )  # Ordino i vicini in base alla distanza dal satellite
     return sat_vector_Topology_sorted
 
 
-def create_topology_dome(env, time=get_current_time()):
+def find_angle(t, satellite):
+    """
+    Find the elevation angle of a satellite relative to the observer at a given time.
 
-    edge_servers = []
-    acc_point, satellites_dome, satellites_buffer = getAllSatOnMe(time)
-    num_sat_dome, num_sat_buffer, num_AP = (
-        len(satellites_dome),
-        len(satellites_buffer),
-        len(acc_point),
-    )
+    Args:
+        t (skyfield.timelib.Time): The time at which to find the elevation angle.
+        satellite (EarthSatellite): The satellite object.
 
-    print(f"TIME: {time.utc_strftime('%Y-%m-%d %H:%M:%S')}\n")
-    print(
-        f"Satelliti Considerati TOT: {num_sat_buffer + num_sat_dome + num_AP} AP: {num_AP} DOME: {num_sat_dome} BUFF: {num_sat_buffer} \n"
-    )
-    tmp_sat = satellites_dome + satellites_buffer
+    Returns:
+        float: The elevation angle in degrees.
+    """
+    sys = getSystemFromSat(satellite, t)
+    alt, az, distance = sys.altaz()
+    return alt.degrees
 
-    # Access Point Edge Servers
-    for k in range(0, num_AP):
-        server_id = f"{acc_point[k][0].name}"
-        edge_server = EdgeServer(env, server_id, acc_point[k][0])
-        edge_servers.append(edge_server)
 
-    globals.global_access_point = (
-        edge_servers.copy()
-    )  # Salvo i nuovi access point globali
+def create_satellite_Identity_card(
+    satellite, life, neighbors_info, t, access_points=False, line_setup=False
+):
+    """
+    Create a dictionary representing a satellite and its neighbors.
 
-    # Tutti i satelliti nella cupola
-    for i in range(0, num_sat_dome + num_sat_buffer):
-        server_id = f"{tmp_sat[i][0].name}"
-        edge_server = EdgeServer(env, server_id, tmp_sat[i][0])
-        edge_servers.append(edge_server)
+    Args:
+        satellite (tuple): A tuple containing the satellite object and its distance from the user.
+        life (dict): A dictionary with information about the satellite's life.
+        neighbors_info (list of tuples): A list of tuples with (neighbor_name, distance, latency).
+        t (skyfield.timelib.Time): The current time.
+        access_points (bool): Whether the satellite is an access point.
 
-    # Calcola i vicini di ogni server
-    for i in range(len(edge_servers)):
-        current_server = edge_servers[i]
-        neighbor = compute_distances_from_target_sw(current_server, edge_servers, time)
-        for n in neighbor:
-            # print(type(n[0]), " n -> ", n[0])
-            current_server.add_neighbor(
-                n[0],
-                1,
-                getLatency(n[1]),
-                globals.rnd.uniform(
-                    config["available_bandwidth"]["min"],
-                    config["available_bandwidth"]["max"],
-                ),
-            )
-        # print(current_server.name)
-    return edge_servers
+    Returns:
+        dict: A dictionary representing the satellite and its neighbors.
+    """
+    elevation_angle = None
+    if not line_setup:
+        elevation_angle = find_angle(
+            t, satellite.satellite
+        )  # Mi trovo l'angolo di elevazione del satellite rispetto l'obverver
+
+    satellite_data = {
+        "satellite": satellite.satellite.name,
+        "distance_from_user": satellite.distance,
+        "is_access_point": access_points,
+        "elev_angle": elevation_angle,
+        "TLE-DATA": [
+            {
+                "name": satellite.tle[0],
+                "line1": satellite.tle[1],
+                "line2": satellite.tle[2],
+            }
+        ],
+        "life": life,
+        "neighbors": [
+            {"name": neighbor_name, "distance": distance, "latency": latency}
+            for neighbor_name, distance, latency in neighbors_info
+        ],
+    }
+    return satellite_data
 
 
 def find_satellite_events(satellite, t0):
@@ -144,7 +586,7 @@ def find_satellite_events(satellite, t0):
     life = {}
 
     time, events = satellite.find_events(
-        OBSERVER, t_start, t_end, altitude_degrees=config["Phi_max"]
+        getObserverObj(), t_start, t_end, altitude_degrees=config["Phi_max"]
     )  # Find events for the satellite
 
     if len(time) == 0:
@@ -480,9 +922,9 @@ def periodic_recall_Topology_monitor(env, data_configurations, OGMs_tables):
         )
 
         # ! Aggiorno le Globali
-        with lock:
-            globals.global_access_point = new_global_access_point
-            globals.edge_servers = new_edge_servers
+        # ! Sincronizzato intrinsecamente da SimPy
+        globals.global_access_point = new_global_access_point
+        globals.edge_servers = new_edge_servers
 
         globals.config_index += 1
         yield env.timeout(config["Interval_between_Configurations_in_seconds"])

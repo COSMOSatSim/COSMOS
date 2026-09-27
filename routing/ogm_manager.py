@@ -2,13 +2,18 @@ import sys
 import json
 from datetime import timedelta
 import globals
+import simpy
 from utils import colorize, saveInfoInFile, transmission_failure_probability
 from routing.ogm import Ogm
 from Observer import Observer
-from user_based_topology import ts, get_orbit_proximity
+from topology.core import ts, get_orbit_proximity
+from topology.core import loadConfiguration
+import threading
+from enums import AccPointMode
+from topology.core import getObserverObj
+
 
 config = globals.config
-lock = globals.lock_access_edge_servers_topology if hasattr(globals, 'lock_access_edge_servers_topology') else None
 
 def load_saved_OGM() -> dict:
     try:
@@ -19,6 +24,11 @@ def load_saved_OGM() -> dict:
         sys.exit(colorize(f"[ERROR] Caricamento OGM table fallito: {e}", "red"))
     print(colorize("[LOAD] OGM table caricata con successo.\n", "green"))
     return ogm_data
+
+
+ADDING_TIME = config["adding_time"]
+CONFIG_RIEMPI = int(ADDING_TIME / config["Interval_between_Configurations_in_seconds"])
+
 
 def create_ogm(obj: type, origin_position_vect: list, is_AP: bool) -> None:
     ogm = Ogm(
@@ -100,11 +110,8 @@ def manage_ogm_test(ogm_map: list, t: type) -> dict:
     }
     return ogm_tables_snapshot
 
-def distribute_ogm(env: type, data_configuration: dict, config_riempimento: int) -> type:
+def distribute_ogm(env: type, data_configuration: dict, config_riempimento: int):
     # Need to import loadConfiguration lazily to avoid circular imports during startup
-    from topology import loadConfiguration
-    import threading
-    lock_local = threading.Lock()
     
     OGMs_table = None
 
@@ -122,9 +129,9 @@ def distribute_ogm(env: type, data_configuration: dict, config_riempimento: int)
             env, data_configuration, OGMs_table
         )
 
-        with lock_local:
-            globals.global_access_point = new_global_access_point
-            globals.edge_servers = new_edge_servers
+        # ! Sincronizzato intrinsecamente da SimPy
+        globals.global_access_point = new_global_access_point
+        globals.edge_servers = new_edge_servers
 
         with globals.lock_access_edge_servers_topology:
             ogm_map = [globals.observer] + globals.edge_servers_topology
@@ -149,12 +156,7 @@ def distribute_ogm(env: type, data_configuration: dict, config_riempimento: int)
         globals.config_index += 1
         yield env.timeout(config["Interval_between_Configurations_in_seconds"])
 
-import simpy
-from enums import AccPointMode
-from user_based_topology import getObserverObj
 
-ADDING_TIME = config["adding_time"]
-CONFIG_RIEMPI = int(ADDING_TIME / config["Interval_between_Configurations_in_seconds"])
 
 def process_OGM_enviroment_simulation(data_configuration: dict) -> None:
     """

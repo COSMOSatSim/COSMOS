@@ -3,7 +3,6 @@ from math import sqrt
 import simpy
 from skyfield.api import EarthSatellite
 from collections import OrderedDict
-from user_based_topology import getSystemFromSat
 from routing.task import Task
 from routing.routing_manager import findAlgorithm
 from utils import colorize
@@ -276,6 +275,7 @@ class EdgeServer:
         rappresenta la posizione del satellite in un determinato istante.
         """
 
+        from topology.core import getSystemFromSat
         return getSystemFromSat(self.satellite, t, True).position.km.tolist()
     # --------------------------------------------------
     # Gestione Energetica

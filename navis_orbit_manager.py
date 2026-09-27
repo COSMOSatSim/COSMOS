@@ -2,14 +2,14 @@ import sys
 
 from skyfield.api import load, wgs84
 from Observer import Observer_Temp
-from SaveCurrentSATOnFile import openTLEFromFile, saveTLEOnFile
-from user_based_topology import getAllSatOnLine
+from topology.core import openTLEFromFile, saveTLEOnFile
+from topology.core import getAllSatOnLine
 from Vessel import Vessel
 import json5
 from utils import colorize
 from Plotters import plot_orbital_corridor
 from enums import AccPointMode
-from topology import genConfigs_line
+from topology.core import genConfigs_line
 import numpy as np
 
 

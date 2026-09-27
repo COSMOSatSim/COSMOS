@@ -63,23 +63,6 @@ def count_completed_tasks(tasks: list) -> dict:
     return top_value
 
 
-def plot_dome(snapshot: dict):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-
-    xs = [satellite["position"][0] for satellite in snapshot]
-    ys = [satellite["position"][1] for satellite in snapshot]
-    zs = [satellite["position"][2] for satellite in snapshot]
-
-    ax.scatter(xs, ys, zs)
-
-    for satellite in snapshot:
-        x, y, z = satellite["position"]
-        ax.text(x, y, z, satellite["satellite"])
-
-    plt.savefig(f"{PLOT_PATH}dome_plot.png")
-    plt.close()
-
 def expand_axes(ax, factor=1.5):
     """
     Aumenta le dimensioni del cubo 3D espandendo i limiti degli assi.

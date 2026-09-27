@@ -10,10 +10,10 @@ import ILP_simulation, simulation
 from routing.task import generate_Tasks_Status, convert_task_list_in_dict
 from routing.routing_manager import findAlgorithm
 from simulation import generate_tasks
-from topology import build_configurations, get_global_mode, load_saved_configuration, loadConfiguration, \
+from topology.core import build_configurations, get_global_mode, load_saved_configuration, loadConfiguration, \
     periodic_recall_Topology_monitor, string_to_skyfield_time
-from user_based_topology import get_current_time, getObserverObj
-from SaveCurrentSATOnFile import saveTLEOnFile
+from topology.core import get_current_time, getObserverObj
+from topology.core import saveTLEOnFile
 from routing.ogm_manager import load_saved_OGM
 from routing.routing_engine import routing_simulation_process
 from Observer import Observer

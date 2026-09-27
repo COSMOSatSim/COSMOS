@@ -7,7 +7,9 @@ readability.
 """
 
 import globals
-
+import os
+import sys
+import json
 
 
 def colorize(text: str, color: str) -> str:
@@ -37,10 +39,6 @@ def colorize(text: str, color: str) -> str:
     start = colors.get(color.lower(), "")
     end = colors["reset"] if start else ""
     return f"{start}{text}{end}"
-
-import sys
-import json
-
 
 
 def saveInfoInFile(file: str, value_dictionary: dict, N_config: str) -> None:
@@ -80,7 +78,6 @@ def print_dict(d: dict, level: int = 0) -> None:
     else:
         print(f"{indent}{d}")
 
-import os
 def _win_longpath(p: str) -> str:
     """Rende il path compatibile con i percorsi lunghi di Windows usando il prefisso \\?\\."""
     if os.name != "nt":
