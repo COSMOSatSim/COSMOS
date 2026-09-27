@@ -16,7 +16,7 @@ def run_simulation(config_path):
     print(f"--> [START] Avvio simulazione per: {file_name}")
 
     try:
-        img_file = "img_resolution.json5"  # oppure usa il percorso assoluto se non è nella cwd
+        img_file = "config/img_resolution.json5"  # oppure usa il percorso assoluto se non è nella cwd
         subprocess.run([sys.executable, "main.py", config_path, img_file], check=True)
         print(f"<-- [END] Completata: {file_name}")
         return True

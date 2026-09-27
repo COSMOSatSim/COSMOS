@@ -13,7 +13,7 @@ from topology.core import genConfigs_line
 import numpy as np
 
 
-def load_vessels_settings(name_vassel:str, file_path: str = "vessel_setting.json5") -> Vessel:
+def load_vessels_settings(name_vassel:str, file_path: str = "config/vessel_setting.json5") -> Vessel:
     """
     This function loads vessel settings from a JSON5 configuration file and returns a list of Vessel instances.
     Args:
@@ -31,7 +31,7 @@ def load_vessels_settings(name_vassel:str, file_path: str = "vessel_setting.json
         return vessel
 
 
-def load_obs_settings(file_path: str = "config.json5") -> Observer_Temp:
+def load_obs_settings(file_path: str = "config/config.json5") -> Observer_Temp:
     """
     This function loads observer settings from a JSON5 configuration file and returns an Observer instance.
     Args:
