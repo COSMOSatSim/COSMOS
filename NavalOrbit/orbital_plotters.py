@@ -69,7 +69,7 @@ def plot_orbital_corridor(sat_list, pos_A, pos_B, t:Time, corridor_angle_deg:flo
     # 6. SATELLITI E PILASTRI ALTITUDINE
     sat_coords = []
     if sat_list:
-        sat_coords = np.array([sat.at(t).position.km for sat in sat_list])
+        sat_coords = np.array([sat.satellite.at(t).position.km for sat in sat_list])
         ax.scatter(sat_coords[:, 0], sat_coords[:, 1], sat_coords[:, 2], 
                    color='orange', s=50, label='Satelliti', marker='^', depthshade=False)
 

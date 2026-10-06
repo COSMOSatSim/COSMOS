@@ -28,3 +28,6 @@ class GenConfigsOutput(TypedDict):
     observer_position: Any
     configurations: List[GenConfigsConfigEntry]
 
+class NavalRules(StrEnum):
+    RADIUS = "radius"
+    GLOBAL = "global"

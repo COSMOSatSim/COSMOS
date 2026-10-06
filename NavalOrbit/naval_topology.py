@@ -1,7 +1,10 @@
 import sys
 import numpy as np
+
 from skyfield.timelib import Time
 from skyfield.toposlib import GeographicPosition
+from skyfield.api import EarthSatellite, load
+
 from enums import AccPointMode, Topology, tle_data, GenConfigsOutput
 from globals import config
 from tqdm import tqdm
@@ -10,6 +13,8 @@ from topology.core import (
     get_orbit_proximity, build_topology_network, create_satellite_Identity_card,
     getLatency
 )
+from topology.Satellite import Satellite
+from topology.core import filterSatellitesInView
 from utils import colorize
 
 def getAllSatOnLine(
@@ -77,7 +82,7 @@ def getAllSatOnLine(
             line2 = tle_data[i + 2].strip()
 
             # Creazione satellite e calcolo posizione orbitale (LA PARTE PIÙ PESANTE, FATTA UNA VOLTA SOLA)
-            satellite = EarthSatellite(line1, line2, name, ts)
+            satellite = EarthSatellite(line1, line2, name, load.timescale())
             vP_km = satellite.at(t).position.km  
             vP = vP_km / np.linalg.norm(vP_km)  
 

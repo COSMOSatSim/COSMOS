@@ -82,7 +82,6 @@ except Exception as e:
 # Inizializzazioni seme e RNG
 # ---------------------------------------------------------------------
 _seed = int(config.get("seed", 42))
-
 rnd = _random.Random(_seed)
 np.random.seed(_seed)
 rnd_np = np.random.default_rng(_seed)
