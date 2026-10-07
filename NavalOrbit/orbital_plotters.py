@@ -3,13 +3,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
     
-def plot_orbital_corridor(sat_list, pos_A, pos_B, t:Time, corridor_angle_deg:float, show_footprints:bool=False):
+def plot_orbital_corridor(sat_list, pos_A, pos_B, t:Time, corridor_angle_deg:float, show_footprints:bool=False, routing_path:list=None):
     """
     Visualizza in 3D l'Observer (A), il Vessel (B) e i satelliti.
     Include la rotta curva sulla superficie e i 'pilastri' di altitudine dei satelliti.
     
     :param show_footprints: Se True, disegna i cerchi (cupole) a terra attorno ad A e B.
     :param corridor_angle_deg: Ampiezza del corridoio in gradi (usata per i footprint).
+    :param routing_path: Lista dei nomi dei satelliti visitati dall'algoritmo di routing.
     """
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
@@ -77,6 +78,22 @@ def plot_orbital_corridor(sat_list, pos_A, pos_B, t:Time, corridor_angle_deg:flo
             ground_pt = (sat_pos / np.linalg.norm(sat_pos)) * R_earth
             ax.plot([ground_pt[0], sat_pos[0]], [ground_pt[1], sat_pos[1]], [ground_pt[2], sat_pos[2]], 
                     color='orange', linestyle=':', alpha=0.6)
+
+    # 6.5. DISEGNO DEL PATH (se fornito)
+    if routing_path and sat_list:
+        path_coords = []
+        sat_dict = {sat.name: sat.satellite for sat in sat_list}
+        for node_name in routing_path:
+            if node_name in sat_dict:
+                pos = sat_dict[node_name].at(t).position.km
+                path_coords.append(pos)
+                
+        if path_coords:
+            path_coords = np.array(path_coords)
+            ax.plot(path_coords[:, 0], path_coords[:, 1], path_coords[:, 2], 
+                    color='blue', linestyle='-', linewidth=3, label='Greedy Path', zorder=10)
+            ax.scatter(path_coords[:, 0], path_coords[:, 1], path_coords[:, 2], 
+                       color='blue', s=80, marker='o', depthshade=False, zorder=11)
 
     # 7. SETUP ASSI E LEGENDA
     ax.set_xlabel('X (km)')

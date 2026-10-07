@@ -431,7 +431,7 @@ class RoutingManager:
                         yield from self.deliver_to_Observer(env, 'BIDIRECTIONAL', task)
                         continue
                 else:
-                    if self.node.elev_angle >= 40:
+                    if self.node.elev_angle >= globals.config["phi_max"]:
                         yield from self.deliver_to_Observer(env, 'MONODIRECTIONAL', task)
                         continue
 

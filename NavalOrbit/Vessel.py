@@ -44,48 +44,57 @@ def calculate_destination(lat1_deg, lon1_deg, bearing_deg, distance_km):
                              
     return math.degrees(lat2), math.degrees(lon2)
 
+from typing import NamedTuple
+
+class DistanceRange(NamedTuple):
+    min_dist: int
+    max_dist: int
+
+class ScenarioDistances:
+    NEAR = DistanceRange(0, 1500)
+    MEDIUM = DistanceRange(5000, 9000)
+    FAR = DistanceRange(16000, 20000)
+
 def generate_vessel(
     rule: NavalRules = NavalRules.GLOBAL,
-    min_dist:int = None, 
-    max_dist:int = None, 
+    distance_range: DistanceRange = None, 
     observer_pos:Observer_Temp= None) -> Vessel:
     """
     Generate a Vessel instance based on the specified rule and observer position.
-    rule_name is a Naval_Rules enum value.
-    if rule_name.RADIUS -> min_dist, max_dist and observer_pos are required to define the distance range in kilometers
-    if rule_name.GLOBAL -> The Vessel's position is generated randomly anywhere on the globe.
+    rule is a NavalRules enum value.
+    if rule == NavalRules.RADIUS -> distance_range (DistanceRange struct) and observer_pos are required.
+    if rule == NavalRules.GLOBAL -> The Vessel's position is generated randomly anywhere on the globe.
     
     Args:
         rule (NavalRules): The name of the generation rule to use.
-        min_dist  (int): None | The minimum distance in kilometers for the 'radius' mode.
-        max_dist  (int): None | The maximum distance in kilometers for the 'radius' mode.
-        observer_pos: The position of the observer (required for 'radius' mode).
+        distance_range (DistanceRange): Struct containing min_dist and max_dist.
+        observer_pos (Observer_Temp): The position of the observer (required for 'radius' mode).
     Returns:
         Vessel: An instance of the Vessel class.
     """
     
     if rule == NavalRules.RADIUS and observer_pos is None:
-        raise ValueError("observer_pos is required when rule_name is 'radius'")
-    if rule == NavalRules.RADIUS and (min_dist is None or max_dist is None):
-        raise ValueError("min_dist and max_dist are required when rule_name is 'radius'")
+        raise ValueError("observer_pos is required when rule is 'radius'")
+    if rule == NavalRules.RADIUS and distance_range is None:
+        raise ValueError("distance_range is required when rule is 'radius'")
     
     
     name = f"V-{generate_vessel_name()}"
     
-    if rule.GLOBAL:
+    if rule == NavalRules.GLOBAL:
         lat = globals.rnd.uniform(-90.0, 90.0)
         lon = globals.rnd.uniform(-180.0, 180.0)
         return Vessel(name, wgs84.latlon(lat, lon))
         
-    elif rule.RADIUS:  
-        if min_dist < 0 or max_dist < 0 or min_dist > max_dist:
+    elif rule == NavalRules.RADIUS:  
+        if distance_range.min_dist < 0 or distance_range.max_dist < 0 or distance_range.min_dist > distance_range.max_dist:
                 raise ValueError("Invalid distance range: min_dist and max_dist must be non-negative and min_dist <= max_dist")      
         # Calculate random distance and bearing
-        distance = globals.rnd.uniform(min_dist, max_dist)
+        distance = globals.rnd.uniform(distance_range.min_dist, distance_range.max_dist)
         bearing = globals.rnd.uniform(0.0, 360.0)
         
-        lat1 = observer_pos.latitude.degrees
-        lon1 = observer_pos.longitude.degrees
+        lat1 = observer_pos.position.latitude.degrees
+        lon1 = observer_pos.position.longitude.degrees
         
         lat2, lon2 = calculate_destination(lat1, lon1, bearing, distance)
         
