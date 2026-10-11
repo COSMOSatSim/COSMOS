@@ -1,5 +1,9 @@
 # SECMotionModel: Satellite Edge Computing Motion Simulation Model
 
+<p align="center">
+  <img src="data/assets/Simulation.gif" alt="Simulation Demo" width="750" />
+</p>
+
 SECMotionModel is a discrete-event simulation (DES) platform built on Python and [SimPy](https://simpy.readthedocs.io/), designed to model and analyze **Satellite Edge Computing (SEC)** in Low Earth Orbit (LEO) constellations. This project was developed to evaluate how satellite movement impacts coverage, latency, energy consumption, and task offloading efficiency.
 
 ## 🚀 Overview
