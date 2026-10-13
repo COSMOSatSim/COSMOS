@@ -17,11 +17,14 @@ from topology.Satellite import Satellite
 from topology.core import filterSatellitesInView
 from utils import colorize
 
+from NavalOrbit.Vessel import Vessel
+from Observer import Observer
+
 def getAllSatOnLine(
     t: Time,
     tle_data,
-    pos_A: GeographicPosition,
-    pos_B: GeographicPosition,
+    Observer: Observer,
+    Vessel: Vessel,
     corridor_deg: float = config["corridor_angle"],
     Phi_max: int = config["Phi_max"],
     Buffer_zone: int = config["Phi_buffer"],
@@ -34,6 +37,9 @@ def getAllSatOnLine(
     It use the TLE data to find all satellites in the line of sight between A and B,
     including the dome/buffer zone exactly above A and B.
     """
+    pos_A = Observer.position 
+    pos_B = Vessel.position
+    
     corridor_rad = np.radians(corridor_deg)  
     BZED = Phi_max - Buffer_zone 
     BZED_rad = np.radians(BZED) # Convertito una volta sola fuori dal ciclo
@@ -96,23 +102,28 @@ def getAllSatOnLine(
             # --- FASE 2: Verifica Cupole (Metodo Topocentrico Vettoriale) ---
             # Vettore da A al satellite
             top_A = vP_km - vA_km
-            top_A_norm = top_A / np.linalg.norm(top_A)
+            dist_A = np.linalg.norm(top_A)
+            top_A_norm = top_A / dist_A
             alt_A_rad = np.arcsin(np.clip(np.dot(top_A_norm, vA), -1.0, 1.0))
 
             # Vettore da B al satellite
             top_B = vP_km - vB_km
-            top_B_norm = top_B / np.linalg.norm(top_B)
+            dist_B = np.linalg.norm(top_B)
+            top_B_norm = top_B / dist_B
             alt_B_rad = np.arcsin(np.clip(np.dot(top_B_norm, vB), -1.0, 1.0))
 
             # --- UNIONE LOGICA ---
             # È valido se si trova nel corridoio OPPURE sopra l'orizzonte BZED di A OPPURE di B
             if (in_corridor_inf and between_walls) or (alt_A_rad > BZED_rad) or (alt_B_rad > BZED_rad):
-                # ! : controlla 
-                # TODO : CONTROLLA CHE QUESTA SEZIONE SIA GIUSTA E FAI IL COMMIT
-                sat_on_line.append(Satellite(satellite, np.linalg.norm(vP_km - vA_km), (name, line1, line2), False))
+                sat_obj = Satellite(satellite, dist_A, (name, line1, line2), False)
+                sat_obj.dist_A = dist_A
+                sat_obj.elev_A = np.degrees(alt_A_rad)
+                sat_obj.dist_B = dist_B
+                sat_obj.elev_B = np.degrees(alt_B_rad)
+                sat_on_line.append(sat_obj)
         
         # Sorting Satellite by distance from A
-        sat_on_line.sort(key=lambda sat: np.linalg.norm(sat.satellite.at(t).position.km - vA_km))  
+        sat_on_line.sort(key=lambda sat: sat.distance)  
         
         
         if num_acc_point_A > len(sat_on_line):
@@ -132,7 +143,7 @@ def getAllSatOnLine(
             if ap_mode_a == AccPointMode.BASE:
                 can_take = counter < num_acc_point_A
             elif ap_mode_a == AccPointMode.OPTIMAL:
-                can_take = counter < num_acc_point_A and filterSatellitesInView(sat, t)
+                can_take = counter < num_acc_point_A and filterSatellitesInView(pos_A, sat.satellite, t)
             
             if can_take:
                 sat.is_acc_point = True
@@ -151,8 +162,8 @@ def genConfigs_line(
     tle_data:tle_data,
     json_path: str,
     mode: AccPointMode,
-    pos_A: GeographicPosition,
-    pos_B: GeographicPosition
+    Observer: Observer,
+    Vessel: Vessel
     ) -> GenConfigsOutput:
     """
     Questa funzione costruisce configurazioni dati due punti A e B.
@@ -175,6 +186,7 @@ def genConfigs_line(
     t, configs = t0, [] # Initialize time and configuration list
     totSecs = num_configs * interval # Total duration in seconds
     
+    
     print(colorize(f"[{mode}] Generazione Configurazioni:", "yellow"))
     for elapsed_time in tqdm(range(0, totSecs, interval), desc="Progresso", ncols=80):
         step_index = elapsed_time // interval + 1
@@ -182,7 +194,7 @@ def genConfigs_line(
         
         line_conf = [] # Initialize configuration for the current time step
         
-        line = getAllSatOnLine(t, tle_data, pos_A, pos_B, ap_mode_a=mode) # Get satellites in line between pos_A and pos_B
+        line = getAllSatOnLine(t, tle_data, Observer, Vessel, ap_mode_a=mode) # Get satellites in line between pos_A and pos_B
         line_map = build_topology_network(line, t) # Build the Network for the satellites in line
         
         for satellite in line:

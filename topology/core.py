@@ -159,7 +159,7 @@ def getObserverObj(location=config["simulation_location"]):
 
 
 # Getter reference system from a Satellite
-def getSystemFromSat(satellite, time, Geocentric=False):
+def getSystemFromSat(time:Time, satellite:EarthSatellite, ground_reference_point:GeographicPosition = None, Geocentric=False):
     """
     Get the reference system from a satellite.
 
@@ -170,12 +170,18 @@ def getSystemFromSat(satellite, time, Geocentric=False):
         time (Time): The time at which to get the satellite's position.
     Returns:
         Geocentric or Topocentric: The reference system of the satellite at the given time.
-    """
+    """    
+    if not Geocentric:
+        if ground_reference_point is None:
+            raise ValueError("ground_reference_point must be provided when Geocentric is False.")
+        if not isinstance(ground_reference_point, GeographicPosition):
+            raise TypeError(f"ground_reference_point must be an instance of GeographicPosition, got {type(ground_reference_point).__name__} instead.")
+    
     if Geocentric:  # Satellite Position from the Center of Earth
         return satellite.at(time)  # return geocentric system
     else:  # Satellite Position from the Observer Position
         difference = (
-            satellite - getObserverObj()
+            satellite - ground_reference_point
         )  # Calculate the difference between the satellite's position and the observer's position to get the topocentric reference system
         return difference.at(time)  # return topocentric system
 
@@ -196,7 +202,7 @@ def get_pos_proximity(pos1, pos2):
     return sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2)
 
 
-def get_orbit_proximity(sat1, sat2, t):
+def get_orbit_proximity(sat1:EarthSatellite, sat2:EarthSatellite, t):
     """
     Calculates the distance between two satellites in kilometers.
 
@@ -208,8 +214,8 @@ def get_orbit_proximity(sat1, sat2, t):
     Returns: The distance between the two satellites in kilometers.
     """
     # Get geocentric positions in km
-    pos_sat1 = getSystemFromSat(sat1, t, True).position.km
-    pos_sat2 = getSystemFromSat(sat2, t, True).position.km
+    pos_sat1 = getSystemFromSat(t, sat1, Geocentric=True).position.km
+    pos_sat2 = getSystemFromSat(t, sat2, Geocentric=True).position.km
 
     # Extraction of coordinate components
     x1, y1, z1 = pos_sat1
@@ -248,13 +254,16 @@ def getLatency(distance: float):
 # ---------------------------------------------------------------------------- #
 
 
-def filterSatellitesInView(satellite, t):
+def filterSatellitesInView(ground_reference_point:GeographicPosition,satellite:EarthSatellite, t:Time):
     """
-    Input: Satellites
+    Args:
+        ground_reference_point (GeographicPosition): The reference of a specific position on Earth.
+        satellite (EarthSatellite): The satellite object to check.
+        t (Time): The time at which to check the satellite's position.
     Output: Boolean value | True : sat is coming in our direction
                           | False : sat is not coming in our direction
     """
-    sys = getSystemFromSat(satellite, t)
+    sys = getSystemFromSat(t, satellite, ground_reference_point)  # reference system
 
     velocity = sys.velocity
 
@@ -297,7 +306,7 @@ def getAllSatOnMe(
         satellite = EarthSatellite(
             line1, line2, name, ts
         )  # Converting tle Data in SGP4 Satellite Object
-        syst = getSystemFromSat(satellite, t)  # reference system
+        syst = getSystemFromSat(t, satellite, ground_reference_point=getObserverObj() ,Geocentric=False)  # reference system
 
         alt, az, distance = (
             syst.altaz()
@@ -338,7 +347,9 @@ def getAllSatOnMe(
             can_take = counter < Num_Access_point
         elif ap_mode == AccPointMode.OPTIMAL:
             can_take = counter < Num_Access_point and filterSatellitesInView(
-                sat.satellite, t
+                getObserverObj(),
+                sat.satellite, 
+                t
             )
 
         if can_take:
@@ -380,10 +391,10 @@ def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
     return sat_vector_Topology_sorted
 
 
-def find_angle(t, satellite):
+def find_angle(t:Time, satellite:EarthSatellite, ground_reference_point:GeographicPosition):
     """
     Find the elevation angle of a satellite relative to the observer at a given time.
-
+    respect to a specific position.
     Args:
         t (skyfield.timelib.Time): The time at which to find the elevation angle.
         satellite (EarthSatellite): The satellite object.
@@ -391,7 +402,7 @@ def find_angle(t, satellite):
     Returns:
         float: The elevation angle in degrees.
     """
-    sys = getSystemFromSat(satellite, t)
+    sys = getSystemFromSat(t, satellite, ground_reference_point, Geocentric=False)
     alt, az, distance = sys.altaz()
     return alt.degrees
 
@@ -415,7 +426,7 @@ def create_satellite_Identity_card(
     elevation_angle = None
     if not line_setup:
         elevation_angle = find_angle(
-            t, satellite.satellite
+            t, satellite.satellite, getObserverObj()
         )  # Mi trovo l'angolo di elevazione del satellite rispetto l'obverver
 
     satellite_data = {

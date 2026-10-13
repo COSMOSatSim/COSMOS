@@ -1,13 +1,14 @@
 import globals
 from math import sqrt
 import simpy
-from skyfield.api import EarthSatellite
+from skyfield.api import EarthSatellite, Time
+from skyfield.toposlib import GeographicPosition
+
 from collections import OrderedDict
 from routing.task import Task
 from routing.routing_manager import findAlgorithm
 from utils import colorize
 from routing.routing_manager import RoutingManager
-
 
 # Leggi il file di configurazione JSON
 config = globals.config
@@ -135,7 +136,7 @@ class EdgeServer:
         state = {
             "time": env.now,
             "satellite": self.name,
-            "in_listening_dome": self.elev_angle >= 40,
+            "in_listening_dome": self.elev_angle >= config["Phi_max"],
             "elev_angle": self.elev_angle,
             "energy_budget_J": self.energy,
             "energy_reserved_J": self.energy_reserved,
@@ -269,14 +270,15 @@ class EdgeServer:
     def __str__(self):
         return f"Satellite :{self.name}\n\telev:{self.elev_angle}\n\tis_AP:{self.is_acc_point}"
 
-    def getPositionVector(self, t):
+    def getPositionVector(self, t:Time):
         """
-        Questa funzione ritorna un vettore in 3 dimensioni,
-        rappresenta la posizione del satellite in un determinato istante.
+        Returns the 3D position vector of the satellite at a given time.
+        Args: 
+            t (Time): The time at which to get the satellite's position.
+        Returns:
+            list: A 3D vector representing the satellite's position in kilometers.
         """
-
-        from topology.core import getSystemFromSat
-        return getSystemFromSat(self.satellite, t, True).position.km.tolist()
+        return self.satellite.at(t).position.km.tolist()
     # --------------------------------------------------
     # Gestione Energetica
     # --------------------------------------------------
