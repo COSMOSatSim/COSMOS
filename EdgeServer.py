@@ -505,7 +505,7 @@ class EdgeServer:
             
             task.current_node = receiver.name   # Modifichiamo le informazioni sul task
 
-            if task.dest_node == receiver.name:
+            if task.destination == receiver or task.dest_node == receiver.name:
                 task.arrived = True
                 task.label = 'TASK_ARRIVED'
 

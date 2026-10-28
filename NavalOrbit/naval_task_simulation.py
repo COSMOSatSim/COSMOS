@@ -42,7 +42,7 @@ def _handle_in_network_assignment(
     task_vessel = Task(
         task_id=task_id,
         current_node=selected_server.name,
-        dest_node=vessel.name,
+        destination=vessel,
         routingInitTime=env.now,
         task_type=task_type,
         image_size=image_size,
@@ -307,7 +307,7 @@ def _handle_to_observer_assignment(
     task_obs = Task(
         task_id=task_id,
         current_node=selected_server.name,
-        dest_node='OBS',
+        destination=globals.observer,
         routingInitTime=env.now,
         task_type=task_type,
         image_size=image_size,

@@ -57,7 +57,7 @@ def TaskAssignment(env, selected_server, task_id, image_size,
     """
     ENABLE_MONITORING = config.get("enable_queue_monitoring", False)
 
-    task_OBS = Task(task_id, selected_server.name, 'OBS', env.now, task_type, image_size)
+    task_OBS = Task(task_id, selected_server.name, globals.observer, env.now, task_type, image_size)
     bw_Bps, data_bytes = network_metrics(image_size)
 
     # Inizializza gli attributi solo se il monitoraggio è attivo
@@ -673,7 +673,7 @@ def enqueue_batch_in_net(env, server_obj, task_id, image_size_MB, arrival_time_s
 
 
 
-    task_OBS = Task(task_id, server_obj.name, 'OBS', arrival_time_system, "Batch", image_size_MB)
+    task_OBS = Task(task_id, server_obj.name, globals.observer, arrival_time_system, "Batch", image_size_MB)
     print(f"[ENQ_DBG START] id={task_id} server={server_obj.name} at={env.now:.3f}")
     print(f"  image_size_MB={image_size_MB:.3f}")
     bw_Bps, data_bytes = network_metrics(image_size_MB)

@@ -81,7 +81,7 @@ class GreedyStrategy(RoutingStrategy):
         Returns:
             Any: Generatore SimPy per l'attesa della trasmissione.
         """
-        dest_pos = globals.observer.getPositionVector(globals.ist_in_conf)
+        dest_pos = task.destination.getPositionVector(globals.ist_in_conf)
         ranker_neighbors = []
 
         for server in manager.node.neighbors:
@@ -262,7 +262,7 @@ class DsrStrategy(RoutingStrategy):
                         else:
                             timeout += 1
 
-                elif node.name == task.dest_node:
+                elif node == task.destination or node.name == task.dest_node:
                     node.arrived_tasks.append(task)
                     node.tasks.remove(task) 
                     task.routingEndTime = env.now
@@ -429,19 +429,19 @@ class RoutingManager:
                 # Gestione AP Bidirezionale / Monodirezionale
                 if globals.config["AP_routing_bidirectional"]:
                     if self.node.is_acc_point:
-                        yield from self.deliver_to_Observer(env, 'BIDIRECTIONAL', task)
+                        yield from self.deliver_to_terminal(env, 'BIDIRECTIONAL', task)
                         continue
                 else:
                     if self.node.elev_angle >= globals.config["phi_max"]:
-                        yield from self.deliver_to_Observer(env, 'MONODIRECTIONAL', task)
+                        yield from self.deliver_to_terminal(env, 'MONODIRECTIONAL', task)
                         continue
 
                 # Esecuzione dell'algoritmo tramite la strategia scelta
                 yield from self.strategy.route(env, self, task)
                 
-    def deliver_to_Observer(self, env: Any, mode: str, task: Task) -> Any:
+    def deliver_to_terminal(self, env: Any, mode: str, task: Task) -> Any:
         """
-        Consegna il task direttamente all'Observer (poiché il nodo è un Access Point).
+        Consegna il task direttamente al terminale di destinazione (poiché il nodo è un Access Point).
         
         Args:
             env (Any): L'ambiente SimPy.
@@ -453,7 +453,11 @@ class RoutingManager:
         """
         task.routingEndTime = env.now
         algo = findAlgorithm()
-        yield from self.node.transmit_task(env, task, globals.observer, algo)
+        target = task.destination if hasattr(task, 'destination') else globals.observer
+        yield from self.node.transmit_task(env, task, target, algo)
+
+    # Alias per retrocompatibilità
+    deliver_to_Observer = deliver_to_terminal
 
     @staticmethod
     def get_pos_proximity(pos1: List[float], pos2: List[float]) -> float:

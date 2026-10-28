@@ -76,7 +76,7 @@ def TaskAssignment_ILP(env, selected_server, task_id, image_size,
 
     ENABLE_MONITORING = config.get("enable_queue_monitoring", False)
 
-    task_OBS = Task(task_id, selected_server.name, 'OBS', env.now, task_type, image_size)
+    task_OBS = Task(task_id, selected_server.name, globals.observer, env.now, task_type, image_size)
     bw_Bps, data_bytes = network_metrics(image_size)
 
     # Inizializza gli attributi solo se il monitoraggio è attivo

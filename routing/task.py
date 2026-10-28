@@ -13,8 +13,10 @@ import globals
 import json5, csv
 import os
 from pprint import pprint
+from typing import Optional
 
 from utils import colorize, _win_longpath
+from BaseTerminal import BaseTerminal
 
 config = globals.config
 resolution = globals.resolution_config
@@ -27,14 +29,43 @@ DSR = config["Routing_algorithm"]["DSR"]
 
 class Task:
 
-    def __init__(self, task_id: int, current_node: str, dest_node: str, routingInitTime, task_type, image_size, source: str = ""):
+    def __init__(
+        self,
+        task_id: int,
+        current_node: str,
+        destination: BaseTerminal,
+        routingInitTime: float,
+        task_type: str,
+        image_size: float,
+        source: str = ""
+    ) -> None:
+        """
+        Initialize a network Task entity.
+
+        Args:
+            task_id (int): Unique task identifier.
+            current_node (str): Name of the node currently holding or generating the task.
+            destination (BaseTerminal): The destination terminal endpoint (Observer or Vessel).
+            routingInitTime (float): Simulation timestamp when routing started.
+            task_type (str): Type of task (e.g. 'Generic_Service', 'CPU_Intensive', 'Batch').
+            image_size (float): Payload or image size in megabytes (MB).
+            source (str, optional): Name of the originating source node. Defaults to current_node.
+
+        Raises:
+            TypeError: If destination is not an instance of BaseTerminal.
+        """
+        if not isinstance(destination, BaseTerminal):
+            if destination == "OBS" and hasattr(globals, "observer") and globals.observer is not None:
+                destination = globals.observer
+            else:
+                raise TypeError(f"Task destination must be a BaseTerminal instance, got {type(destination).__name__}")
 
         self.id = task_id
         self.ttl = 20  # Time to live in HOP
         self.hop = 0  # num_hop
         self.arrived = False  # Arrived Flag
         self.routingInitTime = routingInitTime  # Tempo di partenza
-        self.routingEndTime = None  # Tempo di fine
+        self.routingEndTime: Optional[float] = None  # Tempo di fine
         self.label = 'ON_SIMULATION'  # Failure Label
 
         self.task_type = task_type  # Es: "CPU_Intensive"
@@ -43,7 +74,8 @@ class Task:
         self.source = source if source != "" else current_node  # Nodo di partenza
 
         self.current_node = current_node  # Server sul quale si trova
-        self.dest_node = dest_node  # Nodo di destinazione
+        self.destination: BaseTerminal = destination  # Oggetto Terminale di destinazione
+        self.dest_node: str = destination.name  # Nome del nodo di destinazione per lookup compatibili
 
         # self.visited: set[str] = {current_node}# Set Server precedente
         self.visited = set()  # Set Server precedente
