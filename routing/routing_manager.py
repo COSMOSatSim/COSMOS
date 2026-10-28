@@ -7,6 +7,7 @@ from typing import Any, List, Dict, Tuple, Optional
 from routing.task import Task
 from utils import colorize
 from routing.packet import Mode, Packet
+from BaseTerminal import BaseTerminal
 
 
 # ---------------------------------------------------------
@@ -160,7 +161,7 @@ class DsrStrategy(RoutingStrategy):
                 - neighbors_list (List[Any]): A list of neighbor node objects.
                 - neighbor_map (Dict[str, Any]): A dictionary mapping neighbor names to their objects.
         """
-        if node.name != 'OBS':
+        if not isinstance(node, BaseTerminal):
             neighbors_list = list(node.neighbors.keys())
             if node.is_acc_point:
                 neighbors_list += [globals.observer]

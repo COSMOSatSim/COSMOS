@@ -17,12 +17,15 @@ This module provides:
    - `format_mb`: formats memory values (MB/GB) for display purposes.
 """
 
+import abc
 import globals
 from collections import OrderedDict
 from skyfield.api import wgs84
 from skyfield.toposlib import GeographicPosition
 import sys
 import json5
+
+from BaseTerminal import BaseTerminal
 
 config = globals.config
 
@@ -38,9 +41,9 @@ def format_mb(mb_value):
         return f"{gb_value:.2f} GB"
     return f"{mb_value:.2f} MB"
 
-class ObserverMeta(type):
+class ObserverMeta(abc.ABCMeta):
     """
-    Singleton instance of an Observer
+    Singleton instance of an Observer. Inherits from abc.ABCMeta for BaseTerminal compatibility.
     """
     _instances = {}
 
@@ -52,33 +55,27 @@ class ObserverMeta(type):
         return cls._instances[cls]
     
 
-class Observer_Temp:
+class Observer_Temp(BaseTerminal):
     """
     OGGETTO TEMPORANEO.
     Rappresenta l'osservatore nella simulazione, o meglio, colui che genera i task e riceve i risultati.
     """
     def __init__(self, loc_name: str, position: GeographicPosition):
-        
-        self.position = position    # Posizione dell'observers
-        self.name = 'OBS'           
+        super().__init__(name='OBS', position=position, env=None)
         self.location_name =  loc_name
+
+    def print_task_summary(self):
+        pass
 
     def __str__(self):
         return f"Observer(name={self.name}, location_name={self.location_name}, position={self.position})"  
 
 
 
-class Observer(metaclass = ObserverMeta):
+class Observer(BaseTerminal, metaclass=ObserverMeta):
     def __init__(self, env, pos):
+        super().__init__(name='OBS', position=pos, env=env)
         
-        self.env = env
-        self.position = pos     # Posizione dell'observers
-
-        self.name = 'OBS' 
-        self.is_acc_point = False
-        
-        self.tasks = []
-        self.arrived_tasks = []
         self.OGMs_position = {}
         self.ogm_sequence = 0               # Contatore OGM emessi
         self.OGMs = []                      # OGM to process

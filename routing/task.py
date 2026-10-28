@@ -27,7 +27,7 @@ DSR = config["Routing_algorithm"]["DSR"]
 
 class Task:
 
-    def __init__(self, task_id: int, current_node: str, dest_node: str, routingInitTime, task_type, image_size):
+    def __init__(self, task_id: int, current_node: str, dest_node: str, routingInitTime, task_type, image_size, source: str = ""):
 
         self.id = task_id
         self.ttl = 20  # Time to live in HOP
@@ -40,7 +40,7 @@ class Task:
         self.task_type = task_type  # Es: "CPU_Intensive"
         self.weight = image_size  # Dimensione Immagine (MB)
 
-        self.source = current_node  # Nodo di partenza
+        self.source = source if source != "" else current_node  # Nodo di partenza
 
         self.current_node = current_node  # Server sul quale si trova
         self.dest_node = dest_node  # Nodo di destinazione

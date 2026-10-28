@@ -9,6 +9,7 @@ from routing.task import Task
 from routing.routing_manager import findAlgorithm
 from utils import colorize
 from routing.routing_manager import RoutingManager
+from BaseTerminal import BaseTerminal
 
 # Leggi il file di configurazione JSON
 config = globals.config
@@ -473,7 +474,7 @@ class EdgeServer:
         """
         if task.ttl > 0:
             # Gestione dell'attesa nell'env
-            if receiver.name != 'OBS':
+            if not isinstance(receiver, BaseTerminal):
                 bandwidth = globals.rnd.randint(globals.config["available_bandwidth"]["min"], globals.config["available_bandwidth"]["max"])
                 bandwidth = bandwidth * (1024 ** 2) if bandwidth is not None else 0.0
 

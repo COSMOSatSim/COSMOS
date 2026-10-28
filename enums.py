@@ -31,3 +31,8 @@ class GenConfigsOutput(TypedDict):
 class NavalRules(StrEnum):
     RADIUS = "radius"
     GLOBAL = "global"
+
+class NavalUseCase(StrEnum):
+    IN_NETWORK = "IN_NETWORK"
+    TO_OBSERVER = "TO_OBSERVER"
+
