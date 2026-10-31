@@ -53,8 +53,17 @@ def get_active_satellites():
         return None
 
 
-def saveTLEOnFile() -> tle_data:
-    _dir, filename ="./data", "tle_data.txt"
+def saveTLEOnFile(_dir:str = "./data") -> tle_data:
+    """
+    This function attempts to download TLE data from CelesTrak. 
+    If successful, it saves the data to a local file.
+    
+    Args: 
+        _dir (str): Directory where the TLE data will be saved. Defaults to './data'.
+    Returns:
+        tle_data (list): List of TLE data lines if successful, None otherwise.
+    """
+    filename ="tle_data.txt"
     file_path = f"{_dir}/{filename}"
     
     # 1. Attempt to download
@@ -96,9 +105,15 @@ def saveTLEOnFile() -> tle_data:
             sys.exit(colorize(error_msg, "red"))
 
 
-def openTLEFromFile(file_path: str = "./data/tle_data.txt") -> tle_data:
+def openTLEFromFile(file_path: str = "./data/tle_data.txt", _dir: str = None) -> tle_data:
+    if _dir is not None:
+        file_path = f"{_dir}/tle_data.txt"
     if not os.path.exists(file_path):
-        sys.exit(colorize(f"Errore: Il file '{file_path}' non esiste. Assicurati di aver eseguito 'saveTLEOnFile()' prima.","red"))
+        # Fallback to standard ./data/tle_data.txt if custom dir file does not exist
+        if os.path.exists("./data/tle_data.txt"):
+            file_path = "./data/tle_data.txt"
+        else:
+            sys.exit(colorize(f"Errore: Il file '{file_path}' non esiste. Assicurati di aver eseguito 'saveTLEOnFile()' prima.","red"))
     
     try:
         with open(file_path, "r") as file:
@@ -450,17 +465,22 @@ def create_satellite_Identity_card(
     return satellite_data
 
 
-def find_satellite_events(satellite, t0):
+def find_satellite_events(satellite, t0, ground_reference_point=getObserverObj()):
     """
     Finds the events for a satellite between two times.
     Args:
         satellite (EarthSatellite): The satellite for which to find events.
         t0 (datetime): Reference time of start.
-        t1 (datetime): The end time for finding events.
 
     Returns:
         dict : info about life of the satellite
     """
+    
+    if not isinstance(satellite, EarthSatellite):
+        raise TypeError(
+            f"Expected an EarthSatellite object, got {type(satellite).__name__} instead."
+        )
+        
     t_end = ts.utc(
         t0.utc_datetime()
         + timedelta(minutes=config["Interval_future_event_prediction"])
@@ -472,26 +492,25 @@ def find_satellite_events(satellite, t0):
     life = {}
 
     time, events = satellite.find_events(
-        getObserverObj(), t_start, t_end, altitude_degrees=config["Phi_max"]
+        ground_reference_point, t_start, t_end, altitude_degrees=config["Phi_max"]
     )  # Find events for the satellite
-
-    if len(time) == 0:
+    
+    if len(time) < 3:
         life = {
-            "AOS": None,
-            "Max-El": None,
-            "LOS": None,
+            "AOS": time[0].utc_strftime() if len(time) > 0 else None,
+            "Max-El": time[1].utc_strftime() if len(time) > 1 else None,
+            "LOS": time[2].utc_strftime() if len(time) > 2 else None,
             "life_seconds": None,
             "time_until_set_seconds": None,
         }
     else:
-
         if (
             not time[0] < t0 < time[2]
         ):  # If the satellite is not in the dome then its life is not defined
             time_until_set = 0
         else:  # The satellite is in the dome
-
             time_until_set = timedelta(seconds=(time[2] - t0) * 86400).seconds
+
         life = {
             "AOS": time[0].utc_strftime(),  # Acquisition of the Satellite (AOS)
             "Max-El": time[1].utc_strftime(),  # Maximum Elevation            (Max-El)

@@ -30,13 +30,10 @@ def _resolve_config_paths():
         return config_file, img_file
 
     # 2) argv fallback (main.py <config> <img>)
-    if len(sys.argv) >= 3:
-        config_file, img_file = sys.argv[1], sys.argv[2]
+    if len(sys.argv) >= 2 and not sys.argv[1].startswith("-") and (sys.argv[1].endswith(('.json', '.json5')) or os.path.exists(sys.argv[1])):
+        config_file = sys.argv[1]
+        img_file = sys.argv[2] if len(sys.argv) >= 3 and not sys.argv[2].startswith("-") else DEFAULT_IMG
         return config_file, img_file
-
-    if len(sys.argv) == 2:
-        # solo config passato tramite argv
-        return sys.argv[1], DEFAULT_IMG
 
     # 3) default
     return DEFAULT_CONFIG, DEFAULT_IMG
