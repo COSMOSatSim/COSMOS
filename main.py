@@ -163,6 +163,7 @@ if __name__ == "__main__":
                 env.process(ILP_simulation.TaskAssignment_ILP(
                     env,
                     server,
+                    globals.observer,
                     batch_task_id,  # <--- FIX: RIMOSSO str(), ora è INT
                     image_size,
                     env.now,
@@ -180,6 +181,7 @@ if __name__ == "__main__":
                 env.process(simulation.TaskAssignment(
                     env,
                     server,
+                    globals.observer,
                     batch_task_id,  # INT
                     image_size,
                     env.now,
@@ -194,6 +196,7 @@ if __name__ == "__main__":
                 env.process(simulation.enqueue_batch_in_net(
                     env,
                     server,
+                    globals.observer,
                     batch_task_id,  # <--- Già INT
                     image_size,
                     env.now,
@@ -208,7 +211,8 @@ if __name__ == "__main__":
         env,
         globals.initial_server_counter,
         globals.different_server_counter,
-        globals.other_server_counter
+        globals.other_server_counter,
+        globals.observer
     ))
 
     # 5) Preparazione dei nomi di cartella e file

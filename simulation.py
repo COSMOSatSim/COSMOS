@@ -1,6 +1,7 @@
 import globals
 import experiments
 from routing.task import Task
+from BaseTerminal import BaseTerminal
 import ILP_simulation
 
 hop = 0  # Inizializza la variabile hop a zero
@@ -39,33 +40,58 @@ def network_metrics(image_size_MB, Volume_size_MB=0.0):
     return bw_Bps, data_bytes
 
 
-def TaskAssignment(env, selected_server, task_id, image_size,
-                   arrival_time_system, num_hops, transfer_time,
-                   task_type, d_cpu, D_r):
+def TaskAssignment(
+    env,
+    selected_server,
+    destination: BaseTerminal,
+    task_id: int,
+    image_size: float,
+    arrival_time_system: float,
+    num_hops: int,
+    transfer_time: float,
+    task_type: str,
+    d_cpu: float,
+    D_r: float,
+):
     """
-    Processo SimPy che assegna un task al server selezionato e simula:
-      - attesa nella coda CPU (cpu_dev)
-      - esecuzione CPU (yield timeout)
-      - eventuale trasferimento su coda NET (net_dev)
-      - downlink verso Ground Unit per alcuni task (delay_to_transfer)
+    SimPy process that assigns a task to the selected server and simulates CPU/NET queues and downlinks.
 
-    Parametri principali:
-      - env: ambiente SimPy
-      - selected_server: oggetto server che espone metodi e risorse (W_cpu, W_net, cpu_dev, net_dev, ecc.)
-      - image_size: dimensione immagine in MB
-      - transfer_time: tempo di trasferimento dal nodo sorgente a questo server (già calcolato)
+    Simulates queuing on the CPU device, execution, queuing on the network device,
+    and downlinking or delivering task results towards the specified destination terminal.
+
+    Args:
+        env: SimPy simulation environment.
+        selected_server: EdgeServer object executing or holding the task.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        task_id (int): Unique identifier for the task.
+        image_size (float): Task data/image size in MB.
+        arrival_time_system (float): Simulation timestamp when the task arrived.
+        num_hops (int): Number of hops traversed before reaching this server.
+        transfer_time (float): Transfer time from the source node to this server.
+        task_type (str): Type of task ('Generic_Service', 'CPU_Intensive', 'Batch', etc.).
+        d_cpu (float): Estimated CPU demand in seconds.
+        D_r (float): Relative deadline for task completion.
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
     """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
     ENABLE_MONITORING = config.get("enable_queue_monitoring", False)
 
-    task_OBS = Task(task_id, selected_server.name, globals.observer, env.now, task_type, image_size)
+    task_obj = Task(task_id, selected_server.name, destination, env.now, task_type, image_size)
     bw_Bps, data_bytes = network_metrics(image_size)
 
     # Inizializza gli attributi solo se il monitoraggio è attivo
     if ENABLE_MONITORING:
-        task_OBS.d_cpu = d_cpu
-        task_OBS.d_net = data_bytes / bw_Bps if bw_Bps > 0 else 0.0
-        task_OBS.deadline = arrival_time_system + D_r
-        task_OBS.image_size_MB = image_size
+        task_obj.d_cpu = d_cpu
+        task_obj.d_net = data_bytes / bw_Bps if bw_Bps > 0 else 0.0
+        task_obj.deadline = arrival_time_system + D_r
+        task_obj.image_size_MB = image_size
 
     # aspetta il trasferimento iniziale verso il selected_server
     yield env.timeout(transfer_time)
@@ -123,7 +149,7 @@ def TaskAssignment(env, selected_server, task_id, image_size,
         req_cpu = selected_server.cpu_dev.request()
         qlen_on_enqueue_cpu = _res_len_with_users(selected_server.cpu_dev)
         if ENABLE_MONITORING:
-            req_cpu.task_data = task_OBS
+            req_cpu.task_data = task_obj
 
         # Attendi CPU
         yield req_cpu
@@ -176,7 +202,7 @@ def TaskAssignment(env, selected_server, task_id, image_size,
         req_cpu = selected_server.cpu_dev.request()
         qlen_on_enqueue_cpu = _res_len_with_users(selected_server.cpu_dev)
         if ENABLE_MONITORING:
-            req_cpu.task_data = task_OBS
+            req_cpu.task_data = task_obj
 
         yield req_cpu
 
@@ -202,7 +228,7 @@ def TaskAssignment(env, selected_server, task_id, image_size,
         req_net = selected_server.net_dev.request()
         qlen_on_enqueue_net = _res_len_with_users(selected_server.net_dev)
         if ENABLE_MONITORING:
-            req_net.task_data = task_OBS
+            req_net.task_data = task_obj
 
         yield req_net
 
@@ -248,7 +274,7 @@ def TaskAssignment(env, selected_server, task_id, image_size,
         req_net = selected_server.net_dev.request()
         qlen_on_enqueue_net = _res_len_with_users(selected_server.net_dev)
         if ENABLE_MONITORING:
-            req_net.task_data = task_OBS
+            req_net.task_data = task_obj
 
         yield req_net
 
@@ -276,13 +302,13 @@ def TaskAssignment(env, selected_server, task_id, image_size,
     execution_time = end_time - start_time
     service_time = execution_time + transfer_time + time_in_queue
 
-    selected_server.tasks.append(task_OBS)
-    globals.gbl_tasks.append(task_OBS)
+    selected_server.tasks.append(task_obj)
+    globals.gbl_tasks.append(task_obj)
 
     if selected_server.elev_angle < config["Phi_max"] - config["Phi_buffer"]:
-        task_OBS.label = 'SEN_OUT_OF_BUFF'
+        task_obj.label = 'SEN_OUT_OF_BUFF'
         if ENABLE_MONITORING:
-            print(f"{selected_server} {selected_server.elev_angle}° {task_OBS.id} set as {task_OBS.label}")
+            print(f"{selected_server} {selected_server.elev_angle}° {task_obj.id} set as {task_obj.label}")
 
     cpu_q = qlen_on_enqueue_cpu if qlen_on_enqueue_cpu is not None else _res_len_with_users(selected_server.cpu_dev)
     net_q = qlen_on_enqueue_net if qlen_on_enqueue_net is not None else _res_len_with_users(selected_server.net_dev)
@@ -408,14 +434,56 @@ def _filter_and_select_best_server(server_metrics, deadline, task_id, task_type,
     return server_metrics_sorted.pop(0), None
 
 
-def _finalize_and_assign_task(env, server_selected, server, task_id,
-                              image_size, Volume_size, arrival_time_system,
-                              transfer_time, task_type, d_cpu, deadline,
-                              required_ram, required_disk,
-                              initial_server_counter, different_server_counter, other_server_counter):
+def _finalize_and_assign_task(
+    env,
+    server_selected,
+    server,
+    destination: BaseTerminal,
+    task_id: int,
+    image_size: float,
+    Volume_size: float,
+    arrival_time_system: float,
+    transfer_time: float,
+    task_type: str,
+    d_cpu: float,
+    deadline: float,
+    required_ram: int,
+    required_disk: int,
+    initial_server_counter: dict,
+    different_server_counter: dict,
+    other_server_counter: dict,
+):
     """
-    Blocco finale: aggiorna contatori, calcola energia di routing e chiama TaskAssignment.
+    Finalize task routing statistics, deduct energy, record generated task data, and invoke TaskAssignment.
+
+    Args:
+        env: SimPy simulation environment.
+        server_selected: Origin/Access Point EdgeServer that evaluated the task.
+        server: Target EdgeServer selected for executing the task.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        task_id (int): Unique identifier for the task.
+        image_size (float): Task data size in MB.
+        Volume_size (float): Extra data volume in MB.
+        arrival_time_system (float): Simulation timestamp when the task arrived.
+        transfer_time (float): Time required to transfer data from server_selected to server.
+        task_type (str): Type of task ('Generic_Service', 'CPU_Intensive', etc.).
+        d_cpu (float): Execution CPU demand in seconds.
+        deadline (float): Relative deadline for the task.
+        required_ram (int): Required RAM in MB.
+        required_disk (int): Required Disk storage in MB.
+        initial_server_counter (dict): Counter dict for tasks arriving at initial servers.
+        different_server_counter (dict): Counter dict for offloaded tasks.
+        other_server_counter (dict): Counter dict for receiving servers.
+
+    Returns:
+        Generator: SimPy generator process for task execution.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
     """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
     num_hops_for_task = 0
     initial_server_counter[server_selected.name] += 1
     data_bytes_global = (image_size + Volume_size) * (1024 ** 2)
@@ -471,15 +539,61 @@ def _finalize_and_assign_task(env, server_selected, server, task_id,
     }
     globals.gbl_generated_tasks_data.append(task_data)
 
-    yield from TaskAssignment(env, server, task_id, image_size,
-                              arrival_time_system, num_hops_for_task, transfer_time,
-                              task_type, d_cpu, deadline)
+    yield from TaskAssignment(
+        env, server, destination, task_id, image_size,
+        arrival_time_system, num_hops_for_task, transfer_time,
+        task_type, d_cpu, deadline
+    )
 
 
-def SearchNode_Heuristic_v1(env, server_selected, task_id, required_ram, required_disk, image_size, Volume_size,
-                            arrival_time_system,
-                            initial_server_counter, different_server_counter, other_server_counter,
-                            task_type, max_energy, d_cpu, deadline):
+def SearchNode_Heuristic_v1(
+    env,
+    server_selected,
+    destination: BaseTerminal,
+    task_id: int,
+    required_ram: int,
+    required_disk: int,
+    image_size: float,
+    Volume_size: float,
+    arrival_time_system: float,
+    initial_server_counter: dict,
+    different_server_counter: dict,
+    other_server_counter: dict,
+    task_type: str,
+    max_energy: float,
+    d_cpu: float,
+    deadline: float,
+):
+    """
+    Select the best server using the Heuristic v1 policy and assign the task.
+
+    Args:
+        env: SimPy simulation environment.
+        server_selected: Origin/Access Point EdgeServer where the task entered.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        task_id (int): Unique identifier for the task.
+        required_ram (int): Required RAM in MB.
+        required_disk (int): Required Disk in MB.
+        image_size (float): Image/data size in MB.
+        Volume_size (float): Additional volume size in MB.
+        arrival_time_system (float): Simulation timestamp when task arrived.
+        initial_server_counter (dict): Counter dict for initial candidate servers.
+        different_server_counter (dict): Counter dict for offloaded servers.
+        other_server_counter (dict): Counter dict for executing servers.
+        task_type (str): Type of task.
+        max_energy (float): Maximum initial/available energy among candidates.
+        d_cpu (float): Execution CPU demand in seconds.
+        deadline (float): Relative deadline in seconds.
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
+    """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
     # 1. Ottieni i vicini
     neighbors_at_distance_one = server_selected.get_neighbors()
     neighbors_at_distance_one.append(server_selected)
@@ -504,12 +618,12 @@ def SearchNode_Heuristic_v1(env, server_selected, task_id, required_ram, require
     if chosen_metric is None:
         return
 
-        # 5. Assegnazione
+    # 5. Assegnazione
     server = chosen_metric['server']
     transfer_time = chosen_metric.get('transfer_time', 0.0)
 
     yield from _finalize_and_assign_task(
-        env, server_selected, server, task_id,
+        env, server_selected, server, destination, task_id,
         image_size, Volume_size, arrival_time_system,
         transfer_time, task_type, d_cpu, deadline,
         required_ram, required_disk,
@@ -521,8 +635,43 @@ def SearchNode_Heuristic_v1(env, server_selected, task_id, required_ram, require
 # FUNZIONI CORE (task e generate_tasks)
 # ---------------------------------------------------------------------------
 
-def task(env, task_id, server, initial_server_counter, different_server_counter, other_server_counter, task_data,
-         max_energy):
+def task(
+    env,
+    task_id: int,
+    server,
+    destination: BaseTerminal,
+    initial_server_counter: dict,
+    different_server_counter: dict,
+    other_server_counter: dict,
+    task_data: dict,
+    max_energy: float,
+):
+    """
+    SimPy process handling the lifecycle of an individual generated task.
+
+    Resolves task parameters, selects search node policy (ILP or ERT/Heuristic),
+    and routes/executes the task towards the destination terminal.
+
+    Args:
+        env: SimPy simulation environment.
+        task_id (int): Unique identifier for the task.
+        server: Selected initial EdgeServer / Access Point.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        initial_server_counter (dict): Counter dict for initial servers.
+        different_server_counter (dict): Counter dict for offloaded tasks.
+        other_server_counter (dict): Counter dict for receiving servers.
+        task_data (dict): Dictionary with task parameters (d_cpu, deadline, type, size, etc.).
+        max_energy (float): Reference maximum energy for score normalization.
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
+    """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
     Volume_size = 0.0
     arrival_time_system = env.now
     d_cpu = task_data.get('d_cpu')
@@ -537,7 +686,7 @@ def task(env, task_id, server, initial_server_counter, different_server_counter,
     policy = config.get("SearchNode", "ERT")
 
     search_node_args = (
-        env, server,
+        env, server, destination,
         task_id,
         required_ram,
         required_disk,
@@ -558,7 +707,33 @@ def task(env, task_id, server, initial_server_counter, different_server_counter,
         yield from SearchNode_Heuristic_v1(*search_node_args)
 
 
-def generate_tasks(env, initial_server_counter, different_server_counter, other_server_counter):
+def generate_tasks(
+    env,
+    initial_server_counter: dict,
+    different_server_counter: dict,
+    other_server_counter: dict,
+    destination: BaseTerminal,
+):
+    """
+    SimPy continuous process that periodically generates tasks and offloads them to Access Points.
+
+    Args:
+        env: SimPy simulation environment.
+        initial_server_counter (dict): Counter dict for initial candidate servers.
+        different_server_counter (dict): Counter dict for offloaded servers.
+        other_server_counter (dict): Counter dict for executing servers.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
+        ValueError: If distribution type in config is unrecognized.
+    """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
     global arrival_time
     print('Genero i task')
 
@@ -614,9 +789,11 @@ def generate_tasks(env, initial_server_counter, different_server_counter, other_
             task_id += 1
             continue
 
-        env.process(task(env, task_id, best_server,
-                         initial_server_counter, different_server_counter, other_server_counter,
-                         temp_task_data, max_energy))
+        env.process(task(
+            env, task_id, best_server, destination,
+            initial_server_counter, different_server_counter, other_server_counter,
+            temp_task_data, max_energy
+        ))
 
         task_id += 1
 
@@ -667,21 +844,47 @@ def task_type_and_size_generator():
     }
 
 
-def enqueue_batch_in_net(env, server_obj, task_id, image_size_MB, arrival_time_system, deadline_relative):
+def enqueue_batch_in_net(
+    env,
+    server_obj,
+    destination: BaseTerminal,
+    task_id: int,
+    image_size_MB: float,
+    arrival_time_system: float,
+    deadline_relative: float,
+):
+    """
+    SimPy process to enqueue a batch task directly into a server's network queue.
+
+    Args:
+        env: SimPy simulation environment.
+        server_obj: EdgeServer receiving the batch task.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        task_id (int): Unique identifier for the batch task.
+        image_size_MB (float): Size of the batch task data in MB.
+        arrival_time_system (float): Simulation timestamp when the batch task arrived.
+        deadline_relative (float): Relative deadline for batch transmission.
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
+    """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
     print(f"[ENQUEUE_BATCH] Called id={task_id} on {server_obj.name} at time={env.now:.3f}")
-    # in cima a enqueue_batch_in_net
 
-
-
-    task_OBS = Task(task_id, server_obj.name, globals.observer, arrival_time_system, "Batch", image_size_MB)
+    task_obj = Task(task_id, server_obj.name, destination, arrival_time_system, "Batch", image_size_MB)
     print(f"[ENQ_DBG START] id={task_id} server={server_obj.name} at={env.now:.3f}")
     print(f"  image_size_MB={image_size_MB:.3f}")
     bw_Bps, data_bytes = network_metrics(image_size_MB)
     print(
         f"  bw_Bps={bw_Bps:.3f}, data_bytes={data_bytes}, computed d_net={data_bytes / bw_Bps if bw_Bps > 0 else 'inf'}")
-    task_OBS.d_net = data_bytes / bw_Bps if bw_Bps > 0 else float('inf')
-    task_OBS.deadline = arrival_time_system + deadline_relative
-    task_OBS.image_size_MB = image_size_MB
+    task_obj.d_net = data_bytes / bw_Bps if bw_Bps > 0 else float('inf')
+    task_obj.deadline = arrival_time_system + deadline_relative
+    task_obj.image_size_MB = image_size_MB
 
     eps_net = server_obj.compute_routing_energy(data_bytes, bw_Bps, config.get("Ptrasm", 1.0))
     print(
@@ -695,7 +898,7 @@ def enqueue_batch_in_net(env, server_obj, task_id, image_size_MB, arrival_time_s
 
     server_obj.energy_reserved += eps_net
     req = server_obj.net_dev.request()
-    req.task_data = task_OBS
+    req.task_data = task_obj
 
     print(f"[{env.now:.3f}] ENQUEUE BATCH id={task_id} on {server_obj.name}")
     yield req

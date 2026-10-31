@@ -55,10 +55,7 @@ class Task:
             TypeError: If destination is not an instance of BaseTerminal.
         """
         if not isinstance(destination, BaseTerminal):
-            if destination == "OBS" and hasattr(globals, "observer") and globals.observer is not None:
-                destination = globals.observer
-            else:
-                raise TypeError(f"Task destination must be a BaseTerminal instance, got {type(destination).__name__}")
+            raise TypeError(f"Task destination must be a BaseTerminal instance, got {type(destination).__name__}")
 
         self.id = task_id
         self.ttl = 20  # Time to live in HOP

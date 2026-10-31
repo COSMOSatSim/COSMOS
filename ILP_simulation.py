@@ -1,5 +1,7 @@
 import globals
+from typing import Optional
 from routing.task import Task
+from BaseTerminal import BaseTerminal
 from sec_ilp_snapshot_v3 import solve_on_Ek, Snapshot, SENState, QueueTask, alpha_from_physics, solve_on_Ek_hierarchical
 
 config = globals.config
@@ -37,23 +39,54 @@ def network_metrics(image_size_MB, Volume_size_MB=0.0):
     return bw_Bps, data_bytes
 
 
-def TaskAssignment_ILP(env, selected_server, task_id, image_size,
-                   arrival_time_system, num_hops, transfer_time,
-                   task_type, d_cpu, D_r, net_bw_override_Bps=None,
-                   result_sink=None, allow_retry=False, routing_already_charged=False, routing_energy_from=None):
+def TaskAssignment_ILP(
+    env,
+    selected_server,
+    destination: BaseTerminal,
+    task_id: int,
+    image_size: float,
+    arrival_time_system: float,
+    num_hops: int,
+    transfer_time: float,
+    task_type: str,
+    d_cpu: float,
+    D_r: float,
+    net_bw_override_Bps: Optional[float] = None,
+    result_sink: Optional[dict] = None,
+    allow_retry: bool = False,
+    routing_already_charged: bool = False,
+    routing_energy_from: Optional[str] = None,
+):
     """
-    Processo SimPy che assegna un task al server selezionato e simula:
-      - attesa nella coda CPU (cpu_dev)
-      - esecuzione CPU (yield timeout)
-      - eventuale trasferimento su coda NET (net_dev)
-      - downlink verso Ground Unit per alcuni task (delay_to_transfer)
+    SimPy process that assigns a task to the selected server under ILP policy.
 
-    Parametri principali:
-      - env: ambiente SimPy
-      - selected_server: oggetto server che espone metodi e risorse (W_cpu, W_net, cpu_dev, net_dev, ecc.)
-      - image_size: dimensione immagine in MB
-      - transfer_time: tempo di trasferimento dal nodo sorgente a questo server (già calcolato)
+    Args:
+        env: SimPy simulation environment.
+        selected_server: EdgeServer object executing or holding the task.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        task_id (int): Unique identifier for the task.
+        image_size (float): Task data/image size in MB.
+        arrival_time_system (float): Simulation timestamp when the task arrived.
+        num_hops (int): Number of hops traversed before reaching this server.
+        transfer_time (float): Transfer time from the source node to this server.
+        task_type (str): Type of task ('Generic_Service', 'CPU_Intensive', 'Batch', etc.).
+        d_cpu (float): Estimated CPU demand in seconds.
+        D_r (float): Relative deadline for task completion.
+        net_bw_override_Bps (float, optional): Optional network bandwidth override.
+        result_sink (dict, optional): Dictionary to capture execution status and failure reason.
+        allow_retry (bool, optional): Whether retrying on another server is permitted.
+        routing_already_charged (bool, optional): Flag indicating if routing energy was already deducted.
+        routing_energy_from (str, optional): Server name from which routing energy was deducted.
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
     """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
     if result_sink is None:
         result_sink = {}
     result_sink["ok"] = False
@@ -76,15 +109,15 @@ def TaskAssignment_ILP(env, selected_server, task_id, image_size,
 
     ENABLE_MONITORING = config.get("enable_queue_monitoring", False)
 
-    task_OBS = Task(task_id, selected_server.name, globals.observer, env.now, task_type, image_size)
+    task_obj = Task(task_id, selected_server.name, destination, env.now, task_type, image_size)
     bw_Bps, data_bytes = network_metrics(image_size)
 
     # Inizializza gli attributi solo se il monitoraggio è attivo
     if ENABLE_MONITORING:
-        task_OBS.d_cpu = d_cpu
-        task_OBS.d_net = data_bytes / bw_Bps if bw_Bps > 0 else 0.0
-        task_OBS.deadline = arrival_time_system + D_r
-        task_OBS.image_size_MB = image_size
+        task_obj.d_cpu = d_cpu
+        task_obj.d_net = data_bytes / bw_Bps if bw_Bps > 0 else 0.0
+        task_obj.deadline = arrival_time_system + D_r
+        task_obj.image_size_MB = image_size
 
     # aspetta il trasferimento iniziale verso il selected_server
     yield env.timeout(transfer_time)
@@ -155,7 +188,7 @@ def TaskAssignment_ILP(env, selected_server, task_id, image_size,
         req_cpu = selected_server.cpu_dev.request()
         qlen_on_enqueue_cpu = _res_len_with_users(selected_server.cpu_dev)
         if ENABLE_MONITORING:
-            req_cpu.task_data = task_OBS
+            req_cpu.task_data = task_obj
             print(
                 f"[{env.now:.3f}] Task {task_id} enqueued on CPU {selected_server.name} qlen_enqueue={qlen_on_enqueue_cpu}")
 
@@ -217,7 +250,7 @@ def TaskAssignment_ILP(env, selected_server, task_id, image_size,
         req_cpu = selected_server.cpu_dev.request()
         qlen_on_enqueue_cpu = _res_len_with_users(selected_server.cpu_dev)
         if ENABLE_MONITORING:
-            req_cpu.task_data = task_OBS
+            req_cpu.task_data = task_obj
         print(
             f"[{env.now:.3f}] Task {task_id} enqueued on CPU {selected_server.name} qlen_enqueue={qlen_on_enqueue_cpu}")
 
@@ -247,7 +280,7 @@ def TaskAssignment_ILP(env, selected_server, task_id, image_size,
         req_net = selected_server.net_dev.request()
         qlen_on_enqueue_net = _res_len_with_users(selected_server.net_dev)
         if ENABLE_MONITORING:
-            req_net.task_data = task_OBS
+            req_net.task_data = task_obj
         print(
             f"[{env.now:.3f}] Task {task_id} enqueued on NET {selected_server.name} qlen_enqueue_net={qlen_on_enqueue_net}")
 
@@ -303,7 +336,7 @@ def TaskAssignment_ILP(env, selected_server, task_id, image_size,
         req_net = selected_server.net_dev.request()
         qlen_on_enqueue_net = _res_len_with_users(selected_server.net_dev)
         if ENABLE_MONITORING:
-            req_net.task_data = task_OBS
+            req_net.task_data = task_obj
         print(
             f"[{env.now:.3f}] Batch {task_id} enqueued on NET {selected_server.name} qlen_enqueue_net={qlen_on_enqueue_net}")
 
@@ -335,13 +368,13 @@ def TaskAssignment_ILP(env, selected_server, task_id, image_size,
     execution_time = end_time - start_time
     service_time = execution_time + transfer_time + time_in_queue
 
-    selected_server.tasks.append(task_OBS)
-    globals.gbl_tasks.append(task_OBS)
+    selected_server.tasks.append(task_obj)
+    globals.gbl_tasks.append(task_obj)
 
     if selected_server.elev_angle < config["Phi_max"] - config["Phi_buffer"]:
-        task_OBS.label = 'SEN_OUT_OF_BUFF'
+        task_obj.label = 'SEN_OUT_OF_BUFF'
         if ENABLE_MONITORING:
-            print(f"{selected_server} {selected_server.elev_angle}° {task_OBS.id} set as {task_OBS.label}")
+            print(f"{selected_server} {selected_server.elev_angle}° {task_obj.id} set as {task_obj.label}")
 
     # fallback per qlen: usa i valori di enqueue catturati, altrimenti misura lo stato attuale
     cpu_q = qlen_on_enqueue_cpu if qlen_on_enqueue_cpu is not None else _res_len_with_users(selected_server.cpu_dev)
@@ -469,18 +502,61 @@ def _build_snapshot_Ek(env, candidate_servers, current_task_id, d_cpu_req, d_net
 # globals.gbl_task_hops = {}  # inizializzato all'import sopra
 # globals.gbl_task_final_hops = {}  # inizializzato all'import sopra
 
-def _finalize_and_assign_task(env, server_selected, server, task_id,
-                              image_size, Volume_size, arrival_time_system,
-                              transfer_time, task_type, d_cpu, deadline,
-                              required_ram, required_disk,
-                              initial_server_counter, different_server_counter, other_server_counter,
-                              net_bw_override_Bps=None,
-                              result_sink=None,
-                              allow_retry=False):
+def _finalize_and_assign_task(
+    env,
+    server_selected,
+    server,
+    destination: BaseTerminal,
+    task_id: int,
+    image_size: float,
+    Volume_size: float,
+    arrival_time_system: float,
+    transfer_time: float,
+    task_type: str,
+    d_cpu: float,
+    deadline: float,
+    required_ram: int,
+    required_disk: int,
+    initial_server_counter: dict,
+    different_server_counter: dict,
+    other_server_counter: dict,
+    net_bw_override_Bps: Optional[float] = None,
+    result_sink: Optional[dict] = None,
+    allow_retry: bool = False,
+):
     """
-    Blocco finale: aggiorna contatori, calcola energia di routing,
-    registra i dati globali e chiama TaskAssignment.
+    Finalize ILP task routing statistics, deduct energy, record data, and invoke TaskAssignment_ILP.
+
+    Args:
+        env: SimPy simulation environment.
+        server_selected: Origin/Access Point EdgeServer.
+        server: Target EdgeServer selected for executing the task.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        task_id (int): Unique identifier for the task.
+        image_size (float): Task data size in MB.
+        Volume_size (float): Extra data volume in MB.
+        arrival_time_system (float): Simulation timestamp when the task arrived.
+        transfer_time (float): Transfer time from server_selected to server.
+        task_type (str): Type of task.
+        d_cpu (float): Execution CPU demand in seconds.
+        deadline (float): Relative deadline for the task.
+        required_ram (int): Required RAM in MB.
+        required_disk (int): Required Disk storage in MB.
+        initial_server_counter (dict): Counter dict for tasks arriving at initial servers.
+        different_server_counter (dict): Counter dict for offloaded tasks.
+        other_server_counter (dict): Counter dict for receiving servers.
+        net_bw_override_Bps (float, optional): Network bandwidth override.
+        result_sink (dict, optional): Sink dictionary for status capture.
+        allow_retry (bool, optional): Allow fallback/retry.
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
     """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
     # Inizializza result_sink se necessario
     if result_sink is None:
         result_sink = {}
@@ -561,7 +637,7 @@ def _finalize_and_assign_task(env, server_selected, server, task_id,
 
     # Chiamiamo TaskAssignment_ILP passando il num_hops_local
     local_sink = result_sink if result_sink is not None else {}
-    yield from TaskAssignment_ILP(env, server, task_id, image_size,
+    yield from TaskAssignment_ILP(env, server, destination, task_id, image_size,
                                   arrival_time_system, num_hops_local, transfer_time,
                                   task_type, d_cpu, deadline,
                                   net_bw_override_Bps=net_bw_override_Bps,
@@ -584,14 +660,54 @@ def _finalize_and_assign_task(env, server_selected, server, task_id,
 
 
 
-def SearchNode_ILP_Hybrid_v2(env, server_selected, task_id, required_ram, required_disk, image_size, Volume_size,
-                             arrival_time_system,
-                             initial_server_counter, different_server_counter, other_server_counter,
-                             task_type, max_energy, d_cpu, deadline):
+def SearchNode_ILP_Hybrid_v2(
+    env,
+    server_selected,
+    destination: BaseTerminal,
+    task_id: int,
+    required_ram: int,
+    required_disk: int,
+    image_size: float,
+    Volume_size: float,
+    arrival_time_system: float,
+    initial_server_counter: dict,
+    different_server_counter: dict,
+    other_server_counter: dict,
+    task_type: str,
+    max_energy: float,
+    d_cpu: float,
+    deadline: float,
+):
     """
     Wrapper: Prova ILP se configurato in config["SearchNode"].
     Altrimenti, o in caso di fallimento, esegue SearchNode_Heuristic_v1.
+
+    Args:
+        env: SimPy simulation environment.
+        server_selected: Origin/Access Point EdgeServer.
+        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        task_id (int): Unique identifier for the task.
+        required_ram (int): Required RAM in MB.
+        required_disk (int): Required Disk storage in MB.
+        image_size (float): Image/data size in MB.
+        Volume_size (float): Additional volume size in MB.
+        arrival_time_system (float): Simulation timestamp when task arrived.
+        initial_server_counter (dict): Counter dict for initial candidate servers.
+        different_server_counter (dict): Counter dict for offloaded servers.
+        other_server_counter (dict): Counter dict for executing servers.
+        task_type (str): Type of task.
+        max_energy (float): Maximum initial/available energy among candidates.
+        d_cpu (float): Execution CPU demand in seconds.
+        deadline (float): Relative deadline in seconds.
+
+    Returns:
+        Generator: SimPy generator process.
+
+    Raises:
+        TypeError: If destination is not an instance of BaseTerminal.
     """
+    if not isinstance(destination, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
 
     if str(config.get("SearchNode", "")).upper() == "ILP":
 
@@ -713,7 +829,7 @@ def SearchNode_ILP_Hybrid_v2(env, server_selected, task_id, required_ram, requir
 
             rs = {}
             yield from _finalize_and_assign_task(
-                env, server_selected, exec_server, task_id,
+                env, server_selected, exec_server, destination, task_id,
                 image_size, Volume_size, arrival_time_system,
                 transfer_time_local, task_type, d_cpu, deadline,
                 required_ram, required_disk,
@@ -807,7 +923,7 @@ def SearchNode_ILP_Hybrid_v2(env, server_selected, task_id, required_ram, requir
             # provo ad assegnare davvero il task su questo SEN
             result_sink = {}
             yield from _finalize_and_assign_task(
-                env, server_selected, sen_alt, task_id,
+                env, server_selected, sen_alt, destination, task_id,
                 image_size, Volume_size, arrival_time_system,
                 transfer_time_alt, task_type, d_cpu, deadline,
                 required_ram, required_disk,
@@ -833,7 +949,7 @@ def SearchNode_ILP_Hybrid_v2(env, server_selected, task_id, required_ram, requir
 
     # Passiamo tutti gli argomenti originali a v1, che è funzione euristica standard.
     '''yield from simulation.SearchNode_Heuristic_v1(
-        env, server_selected, task_id, required_ram, required_disk, image_size, Volume_size,
+        env, server_selected, destination, task_id, required_ram, required_disk, image_size, Volume_size,
         arrival_time_system,
         initial_server_counter, different_server_counter, other_server_counter,
         task_type, max_energy, d_cpu, deadline
