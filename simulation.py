@@ -1,3 +1,4 @@
+from typing import Optional, Any, List, Dict
 import globals
 import experiments
 from routing.task import Task
@@ -708,38 +709,59 @@ def task(
 
 
 def generate_tasks(
-    env,
+    env: Any,
     initial_server_counter: dict,
     different_server_counter: dict,
     other_server_counter: dict,
     destination: BaseTerminal,
+    source: Optional[BaseTerminal] = None,
 ):
     """
     SimPy continuous process that periodically generates tasks and offloads them to Access Points.
 
+    Tasks originate at the source terminal and are offloaded to currently visible Access
+    Points covering that terminal. After intermediate satellite routing and execution,
+    the results are routed to the destination terminal. When source is omitted or None,
+    it defaults to destination (representing single-terminal symmetric generation and consumption).
+
     Args:
-        env: SimPy simulation environment.
+        env (Any): SimPy simulation environment.
         initial_server_counter (dict): Counter dict for initial candidate servers.
         different_server_counter (dict): Counter dict for offloaded servers.
         other_server_counter (dict): Counter dict for executing servers.
-        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        destination (BaseTerminal): Destination endpoint terminal receiving the final results.
+        source (Optional[BaseTerminal], optional): Source endpoint terminal generating the tasks.
+            If None, defaults to the destination terminal (symmetric generation and consumption).
+            Defaults to None.
 
     Returns:
-        Generator: SimPy generator process.
+        Generator: SimPy generator process event.
 
     Raises:
-        TypeError: If destination is not an instance of BaseTerminal.
+        TypeError: If destination is not an instance of BaseTerminal, or if source
+            is explicitly provided but is not an instance of BaseTerminal.
         ValueError: If distribution type in config is unrecognized.
     """
     if not isinstance(destination, BaseTerminal):
         raise TypeError(f"Expected BaseTerminal instance for destination, got {type(destination).__name__}")
+
+    if source is None:
+        source = destination
+    elif not isinstance(source, BaseTerminal):
+        raise TypeError(f"Expected BaseTerminal instance for source, got {type(source).__name__}")
 
     global arrival_time
     print('Genero i task')
 
     task_id = 1
     while True:
-        max_energy = max(server.energy for server in globals.global_access_point)
+        candidate_servers = source.get_access_points()
+        if not candidate_servers:
+            # Attendi se nessun AP è attualmente visibile sopra la sorgente
+            yield env.timeout(1.0)
+            continue
+
+        max_energy = max(server.energy for server in candidate_servers)
         distribution_type = config["generate_tasks"]["distribution"]
         distribution_function = getattr(experiments, distribution_type)
 
@@ -770,7 +792,7 @@ def generate_tasks(
 
         best_server = None
         best_score = float('-inf')
-        for server in globals.global_access_point:
+        for server in candidate_servers:
             score = server.get_selection_score(
                 temp_task_data['type'],
                 d_cpu=d_cpu,

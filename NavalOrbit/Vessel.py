@@ -6,33 +6,13 @@ import globals
 from skyfield.toposlib import GeographicPosition
 from skyfield.api import wgs84
 
-from Observer import Observer_Temp, format_mb
+from Observer import Observer_Temp
 from enums import NavalRules
 from BaseTerminal import BaseTerminal
 
 class Vessel(BaseTerminal):
     def __init__(self, name: str, position: GeographicPosition, env=None):
         super().__init__(name=name, position=position, env=env)
-
-    def print_task_summary(self):
-        """
-        Print a summary table of tasks arrived at the vessel.
-        """
-        print(f"TASK ARRIVATI CON SUCCESSO ALLA NAVE ({self.name}): {len(self.tasks)}:\n")
-        print(" id     | weight        | resolution            | Start Routing (s) | End Routing (s) | duration      | hop |")
-        for task in self.tasks:
-            initTime = round(task.routingInitTime, 2)
-            if task.routingEndTime is None:
-                endTime = "N/A"
-                duration = "N/A"
-            else:
-                endTime = round(task.routingEndTime, 2)
-                duration = round(task.routingEndTime - task.routingInitTime, 2)
-
-            weight_val = format_mb(task.weight) if isinstance(task.weight, (int, float)) else str(task.weight)
-            print(
-                f" {task.id:<6} | {weight_val:<13} | {task.task_type:<21} | {initTime:<17} | {endTime:<15} | {duration:<13} | {task.hop:<3} |"
-            )
 
     def __str__(self):
         return f"Vessel(name={self.name}, position={self.position})"

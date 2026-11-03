@@ -110,7 +110,7 @@ if __name__ == "__main__":
         if r_algo == "BATMAN" or r_algo == "DINAMICO":
             globals.OGMs_tables = load_saved_OGM()  # Carico le OGM Table
         
-        globals.edge_servers, globals.global_access_point = loadConfiguration(env, globals.data_configurations, globals.OGMs_tables)  # Carico la topologia in base alla modalità
+        globals.edge_servers = loadConfiguration(env, globals.data_configurations, globals.OGMs_tables)  # Carico la topologia in base alla modalità
         env.process(periodic_recall_Topology_monitor(env, globals.data_configurations, globals.OGMs_tables))
     else:
         print("Nessuna Configurazione richiesta!"); sys.exit(0)
@@ -212,7 +212,7 @@ if __name__ == "__main__":
         globals.initial_server_counter,
         globals.different_server_counter,
         globals.other_server_counter,
-        globals.observer
+        globals.observer,
     ))
 
     # 5) Preparazione dei nomi di cartella e file
@@ -344,7 +344,7 @@ if __name__ == "__main__":
 
     # Raccogli tutti i server in un'unica lista per l'iterazione
     all_servers_by_name = {}
-    for s in (globals.edge_servers or []) + (globals.global_access_point or []):
+    for s in (globals.edge_servers or []):
         if s is None:
             continue
         all_servers_by_name[s.name] = s

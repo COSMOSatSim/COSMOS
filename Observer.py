@@ -26,20 +26,9 @@ import sys
 import json5
 
 from BaseTerminal import BaseTerminal
+from utils import format_mb
 
 config = globals.config
-
-def format_mb(mb_value):
-    """
-    Formats the MB value to a clean string.
-    :param mb_value: Value in Megabytes (MB).
-    :return: Formatted string (e.g., "5.25 MB").
-    """
-    if mb_value >= 1024:
-        # Se è troppo grande, converti in GB per pulizia, altrimenti mantieni MB.
-        gb_value = mb_value / 1024
-        return f"{gb_value:.2f} GB"
-    return f"{mb_value:.2f} MB"
 
 class ObserverMeta(abc.ABCMeta):
     """
@@ -63,9 +52,6 @@ class Observer_Temp(BaseTerminal):
     def __init__(self, loc_name: str, position: GeographicPosition):
         super().__init__(name='OBS', position=position, env=None)
         self.location_name =  loc_name
-
-    def print_task_summary(self):
-        pass
 
     def __str__(self):
         return f"Observer(name={self.name}, location_name={self.location_name}, position={self.position})"  
@@ -105,24 +91,4 @@ class Observer(BaseTerminal, metaclass=ObserverMeta):
         :return: list of [x, y, z] in km
         """
         return self.getLocation(altitude = 0).at(t).position.km.tolist()
-    
 
-    def print_task_summary(self):
-        """
-        Stamp a summary table of tasks arrived at the observer.
-        """
-        print(f"TASK ARRIVATI CON SUCCESSO ALL'OBS: {len(self.tasks)}:\n")
-        print(" id     | weight        | resolution    | Start Routing (s) | End Routing (s) | duration      | hop |")
-        for task in self.tasks:
-
-            initTime = round(task.routingInitTime, 2)
-            if task.routingEndTime is None:
-                endTime = "N/A"
-                duration = "N/A"
-            else:
-                endTime = round(task.routingEndTime, 2)
-                duration = round(task.routingEndTime - task.routingInitTime, 2)
-
-            print(
-                f" {task.id:<6} | {format_mb(task.weight):<13} | {task.task_type:<23} | {initTime:<17} | {endTime:<15} | {duration:<13} | {task.hop:<3} |")
-        print()  # Riga vuota alla fine per separare dall'output successivo

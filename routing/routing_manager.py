@@ -83,11 +83,11 @@ class GreedyStrategy(RoutingStrategy):
         """
         dest_pos = task.destination.getPositionVector(globals.ist_in_conf)
         ranker_neighbors = []
+        dest_aps = task.destination.get_access_points()
 
         for server in manager.node.neighbors:
             neighbor_distance = RoutingManager.get_pos_proximity(dest_pos, server.getPositionVector(globals.ist_in_conf))
-            t = (server, neighbor_distance, server.is_acc_point)
-            ranker_neighbors.append(t)
+            ranker_neighbors.append((server, neighbor_distance, server in dest_aps))
 
         ranker_neighbors.sort(key=lambda x: (not x[2], x[1]))
 
@@ -163,10 +163,10 @@ class DsrStrategy(RoutingStrategy):
         """
         if not isinstance(node, BaseTerminal):
             neighbors_list = list(node.neighbors.keys())
-            if node.is_acc_point:
+            if globals.observer and node in globals.observer.get_access_points():
                 neighbors_list += [globals.observer]
         else:
-            neighbors_list = globals.global_access_point
+            neighbors_list = node.get_access_points()
 
         neighbor_map = {n.name: n for n in neighbors_list}
         return neighbors_list, neighbor_map
@@ -421,23 +421,25 @@ class RoutingManager:
         Returns:
             Any: Generatore SimPy.
         """
-        if len(self.node.neighbors) == 0 or not self.strategy:
+        if not self.strategy:
             return
 
         for task in tasks:
             if not task.arrived:
-                # Gestione AP Bidirezionale / Monodirezionale
+                # Gestione AP Bidirezionale / Monodirezionale per la destinazione del task
+                dest_aps = task.destination.get_access_points()
                 if globals.config["AP_routing_bidirectional"]:
-                    if self.node.is_acc_point:
+                    if self.node in dest_aps:
                         yield from self.deliver_to_terminal(env, 'BIDIRECTIONAL', task)
                         continue
                 else:
-                    if self.node.elev_angle >= globals.config["phi_max"]:
+                    if self.node in dest_aps and self.node.elev_angle >= globals.config["phi_max"]:
                         yield from self.deliver_to_terminal(env, 'MONODIRECTIONAL', task)
                         continue
 
-                # Esecuzione dell'algoritmo tramite la strategia scelta
-                yield from self.strategy.route(env, self, task)
+                # Esecuzione dell'algoritmo tramite la strategia scelta (richiede vicini inter-satellite)
+                if len(self.node.neighbors) > 0:
+                    yield from self.strategy.route(env, self, task)
                 
     def deliver_to_terminal(self, env: Any, mode: str, task: Task) -> Any:
         """
@@ -453,8 +455,7 @@ class RoutingManager:
         """
         task.routingEndTime = env.now
         algo = findAlgorithm()
-        target = task.destination if hasattr(task, 'destination') else globals.observer
-        yield from self.node.transmit_task(env, task, target, algo)
+        yield from self.node.transmit_task(env, task, task.destination, algo)
 
     # Alias per retrocompatibilità
     deliver_to_Observer = deliver_to_terminal

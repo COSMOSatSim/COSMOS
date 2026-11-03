@@ -49,11 +49,11 @@ def exp_1_test():
     ts = load.timescale()
     t0 = ts.now()
 
-    sats = getAllSatOnLine(
+    sats, _ = getAllSatOnLine(
         t=t0, 
         tle_data=tle_data, 
-        Observer=observer, 
-        Vessel=vessel,
+        vessel=vessel,
+        observer=observer,
         corridor_deg=10.0
     )
     
@@ -100,9 +100,9 @@ def exp_2_test(times_iter: int = 10):
         )
 
         # Calcolo lista satelliti
-        sats_near = getAllSatOnLine(t=ts_now, tle_data=tle_data, Observer=observer, Vessel=vessel_scen_near, corridor_deg=10.0)
-        sats_medium = getAllSatOnLine(t=ts_now, tle_data=tle_data, Observer=observer, Vessel=vessel_scen_medium, corridor_deg=10.0)
-        sats_far = getAllSatOnLine(t=ts_now, tle_data=tle_data, Observer=observer, Vessel=vessel_scen_far, corridor_deg=10.0)
+        sats_near, _ = getAllSatOnLine(t=ts_now, tle_data=tle_data, vessel=vessel_scen_near, observer=observer, corridor_deg=10.0)
+        sats_medium, _ = getAllSatOnLine(t=ts_now, tle_data=tle_data, vessel=vessel_scen_medium, observer=observer, corridor_deg=10.0)
+        sats_far, _ = getAllSatOnLine(t=ts_now, tle_data=tle_data, vessel=vessel_scen_far, observer=observer, corridor_deg=10.0)
 
         # Costruzione dei grafi topologici
         graph_near = build_topology_network(sats_near, ts_now)

@@ -30,9 +30,9 @@ def _resolve_config_paths():
         return config_file, img_file
 
     # 2) argv fallback (main.py <config> <img>)
-    if len(sys.argv) >= 2 and not sys.argv[1].startswith("-") and (sys.argv[1].endswith(('.json', '.json5')) or os.path.exists(sys.argv[1])):
+    if len(sys.argv) >= 2 and not sys.argv[1].startswith("-") and sys.argv[1].endswith(('.json', '.json5')) and os.path.exists(sys.argv[1]):
         config_file = sys.argv[1]
-        img_file = sys.argv[2] if len(sys.argv) >= 3 and not sys.argv[2].startswith("-") else DEFAULT_IMG
+        img_file = sys.argv[2] if len(sys.argv) >= 3 and not sys.argv[2].startswith("-") and sys.argv[2].endswith(('.json', '.json5')) and os.path.exists(sys.argv[2]) else DEFAULT_IMG
         return config_file, img_file
 
     # 3) default
@@ -89,7 +89,7 @@ different_server_counter = {}
 other_server_counter = {}
 gbl_generated_tasks_data = []
 
-global_access_point = []
+access_points: dict = {}  # Live mapping {terminal_name: List[EdgeServer]} updated at each configuration timestep
 next_server_index = 0
 gbl_batch_completed = []
 config_index = 0

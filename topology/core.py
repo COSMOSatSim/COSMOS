@@ -611,12 +611,15 @@ def genConfigs_dome(
         
 
         configuration = []
+        obs_aps = []
         
         dome, sat_sort_buff = getAllSatOnMe(t, tle_data, mode)
         topology = dome + sat_sort_buff
 
         # Gestione della serializzabilità
         for current_server in topology:
+            if current_server.is_acc_point:
+                obs_aps.append(current_server.name)
 
             neighbors = compute_distances_from_target_satellite(
                 current_server, topology, t
@@ -638,8 +641,13 @@ def genConfigs_dome(
 
             configuration.append(info_sat)  # Save this satellite's configuration
 
+        obs_name = getObserverObj().name if hasattr(getObserverObj(), "name") else "OBS"
         data = {
             "time": t.utc_datetime().isoformat(),  # Current time in ISO format
+            "step_index": step_index,
+            "access_points": {
+                obs_name: obs_aps,
+            },
             "configuration": configuration,  # List of satellite configurations
         }
         configs.append(data)  # Append the configuration to the list
@@ -768,13 +776,12 @@ def periodic_recall_Topology_monitor(env, data_configurations, OGMs_tables):
         )
         print("MODIFICA CONFIGURAZIONE IN CORSO...\n")
 
-        new_edge_servers, new_global_access_point = loadConfiguration(
+        new_edge_servers = loadConfiguration(
             env, data_configurations, OGMs_tables
         )
 
         # ! Aggiorno le Globali
         # ! Sincronizzato intrinsecamente da SimPy
-        globals.global_access_point = new_global_access_point
         globals.edge_servers = new_edge_servers
 
         globals.config_index += 1
@@ -919,10 +926,8 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
         OGMs_tables: Il dizionario contenente le tabelle OGM per ogni configurazione.
         simple: Flag per indicare se caricare la configurazione in modalità semplice.
     Returns:
-        None
+        List[EdgeServer]: Lista aggiornata di EdgeServer della topologia.
     """
-
-    global_access_point = []  # futuri acc_points
 
     if globals.config_index > 0:
         configuration = data_configurations["configurations"][globals.config_index]
@@ -982,17 +987,17 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
             old_edge_servers.values()
         )
 
-        # Trovo i nuovi acc_points
-        counter_acc_found = 0
-        for server in new_edge_servers:
-            if counter_acc_found < config["access_point"]:
-                if server.is_acc_point:
-                    global_access_point.append(server)
-                    counter_acc_found += 1
-            else:
-                break
+        server_dict = {server.name: server for server in new_edge_servers}
+        globals.access_points = {
+            term: [server_dict[name] for name in sats if name in server_dict]
+            for term, sats in configuration.get("access_points", {}).items()
+        }
+        if not globals.access_points and "access_points" not in configuration:
+            legacy_aps = [s for s in new_edge_servers if s.is_acc_point][:config["access_point"]]
+            obs_name = globals.observer.name if globals.observer else "OBS"
+            globals.access_points = {obs_name: legacy_aps}
 
-        return new_edge_servers, global_access_point
+        return new_edge_servers
     else:
         print(f"SIMULAZIONE INIZIATA conf {globals.config_index}")
         # Caricamento iniziale della configurazione
@@ -1026,23 +1031,20 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
                         config["available_bandwidth"]["max"],
                     ),
                 )
-        # Trovo i nuovi acc_points
-        counter_acc_found = 0
-        for server in edge_servers:
-            if counter_acc_found < config["access_point"]:
-                if server.is_acc_point:
-                    global_access_point.append(server)
-                    counter_acc_found += 1
-            else:
-                break
 
-        # print("TOPOLOGIA ATTUALE:")
-        # [print(sat.name) for sat in edge_servers]
+        globals.access_points = {
+            term: [server_dict[name] for name in sats if name in server_dict]
+            for term, sats in configuration.get("access_points", {}).items()
+        }
+        if not globals.access_points and "access_points" not in configuration:
+            legacy_aps = [s for s in edge_servers if s.is_acc_point][:config["access_point"]]
+            obs_name = globals.observer.name if globals.observer else "OBS"
+            globals.access_points = {obs_name: legacy_aps}
 
         # globals.config_index += 1
         globals.ist_in_conf = string_to_skyfield_time(configuration["time"])
         globals.edge_servers_topology = edge_servers
-        return edge_servers, global_access_point
+        return edge_servers
 
 
 def string_to_skyfield_time(time_str):

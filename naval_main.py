@@ -20,43 +20,31 @@ from skyfield.api import wgs84
 
 import globals
 import simulation
-from enums import AccPointMode, NavalRules
+from enums import AccPointMode, NavalUseCase
 from utils import colorize
 from topology.core import (
     openTLEFromFile, saveTLEOnFile, get_current_time,
-    loadConfiguration, periodic_recall_Topology_monitor
+    loadConfiguration, periodic_recall_Topology_monitor,
+    get_global_mode
 )
 from routing.routing_engine import routing_simulation_process
 from Observer import Observer_Temp
 from NavalOrbit.navis_orbit_manager import load_obs_settings
-from NavalOrbit.Vessel import Vessel, generate_vessel, ScenarioDistances
+from NavalOrbit.Vessel import Vessel
 from NavalOrbit.naval_topology import (
     build_naval_configurations,
     load_saved_naval_configuration
 )
 
 
-def parse_arguments():
+def parse_arguments() -> argparse.Namespace:
+    """
+    Parse command-line arguments for the naval simulation.
+
+    Returns:
+        argparse.Namespace: Parsed command-line flags.
+    """
     parser = argparse.ArgumentParser(description="SECMotionModel Naval Simulation Entry Point")
-    parser.add_argument(
-        "--num-configs",
-        type=int,
-        default=10,
-        help="Number of configuration timesteps to generate (default: 10)"
-    )
-    parser.add_argument(
-        "--interval",
-        type=int,
-        default=globals.config.get("Interval_between_Configurations_in_seconds", 2),
-        help="Time interval between configurations in seconds (default: 2)"
-    )
-    parser.add_argument(
-        "--distance-scenario",
-        type=str,
-        default="MEDIUM",
-        choices=["NEAR", "MEDIUM", "FAR"],
-        help="Initial distance scenario for the vessel relative to observer"
-    )
     parser.add_argument(
         "--load-only",
         action="store_true",
@@ -68,124 +56,93 @@ def parse_arguments():
         help="Run the SimPy simulation after topology generation/loading"
     )
     parser.add_argument(
-        "--sim-duration",
-        type=float,
-        default=30.0,
-        help="Simulation duration in seconds when running simulation (default: 30.0)"
+        "--use-case",
+        type=NavalUseCase,
+        default=NavalUseCase.IN_NETWORK,
+        choices=list(NavalUseCase),
+        help="Naval use case to simulate: IN_NETWORK (tasks return to vessel) or TO_OBSERVER (tasks routed to observer)",
     )
     return parser.parse_args()
 
 
-def get_scenario_distance(scenario_name: str):
-    if scenario_name == "NEAR":
-        return ScenarioDistances.NEAR
-    elif scenario_name == "FAR":
-        return ScenarioDistances.FAR
-    else:
-        return ScenarioDistances.MEDIUM
-
-
-def main():
+def main() -> None:
+    """
+    Main entry point for naval topology generation and simulation execution.
+    """
     # 1. SimPy environment and configuration setup
     args = parse_arguments()
     start_real_time = time.time()
-    config, resolution_config = globals.config, globals.resolution_config
+    config = globals.config
     env = simpy.Environment()
+    observer = load_obs_settings()
+    globals.observer = observer
+
+    sim_duration = float(config.get("simulation_duration", 300.0))
+    interval = int(config.get("Interval_between_Configurations_in_seconds", 2))
+    num_configs = int(sim_duration / interval) if interval > 0 else 150
+    ap_mode = get_global_mode()
 
     print(colorize("\n" + "=" * 70, "cyan"))
     print(colorize("       SECMotionModel - Naval Simulation & Topology Setup", "cyan"))
+    print(colorize(f"       AP Mode: {ap_mode.value.upper()} | Sim Duration: {sim_duration}s ({num_configs} configs @ {interval}s)", "cyan"))
     print(colorize("=" * 70 + "\n", "cyan"))
 
-    configs_base = None
-    configs_optimal = None
-
     if args.load_only:
-        print(colorize("[MODE] Caricamento configurazioni navali esistenti...", "yellow"))
-        configs_base = load_saved_naval_configuration(AccPointMode.BASE)
-        configs_optimal = load_saved_naval_configuration(AccPointMode.OPTIMAL)
+        print(colorize(f"[MODE] Caricamento configurazione navale esistente <{ap_mode.value}>...", "yellow"))
+        configs = load_saved_naval_configuration(ap_mode)
 
-        conf_ref = configs_optimal if configs_optimal else configs_base
-        v_name = conf_ref.get("vessel_name", "V-LOADED")
-        first_step = conf_ref.get("configurations", [{}])[0]
+        v_name = configs.get("vessel_name", "V-LOADED")
+        first_step = configs.get("configurations", [{}])[0]
         pos_dict = first_step.get("vessel_position", {"lat": 0.0, "lon": 0.0})
         vessel = Vessel(v_name, wgs84.latlon(pos_dict["lat"], pos_dict["lon"]), env=env)
     else:
-        print(colorize("[INFO] Building new naval configurations...", "yellow"))        
+        print(colorize(f"[INFO] Building new naval configuration <{ap_mode.value}>...", "yellow"))        
         tle_data = openTLEFromFile(_dir="./NavalOrbit/data")
         t0 = get_current_time()
         
-        observer = load_obs_settings()
-        distance_range = get_scenario_distance(args.distance_scenario)
-        vessel = generate_vessel(
-            rule=NavalRules.RADIUS,
-            distance_range=distance_range,
-            observer_pos=observer
-        )
+        # Coordinate fisse oceano Atlantico (No Poli, piena copertura Walker-Delta 53°)
+        vessel = Vessel("V-ATLANTIC", wgs84.latlon(33.373586, -47.955604), env=env)
         
-        # Build BASE configuration
-        configs_base = build_naval_configurations(
+        configs = build_naval_configurations(
             t0=t0,
             tle_data=tle_data,
-            mode=AccPointMode.BASE,
+            mode=ap_mode,
             vessel=vessel,
             observer=observer,
-            num_configs=args.num_configs,
-            interval=args.interval
+            num_configs=num_configs,
+            interval=interval
         )
 
-        # Build OPTIMAL configuration
-        configs_optimal = build_naval_configurations(
-            t0=t0,
-            tle_data=tle_data,
-            mode=AccPointMode.OPTIMAL,
-            vessel=vessel,
-            observer=observer,
-            num_configs=args.num_configs,
-            interval=args.interval
-        )
-        
-        
-
-    # 5. Summary and Verification
+    # Summary and Verification
     print(colorize("\n" + "-" * 70, "cyan"))
     print(colorize("                    GENERATION SUMMARY", "cyan"))
     print(colorize("-" * 70, "cyan"))
     
-    conf_base_list = configs_base.get("configurations", [])
-    conf_opt_list = configs_optimal.get("configurations", [])
+    conf_list = configs.get("configurations", [])
+    print(f"Total configurations ({ap_mode.value.upper()}): {len(conf_list)}")
 
-    print(f"Total BASE configurations:    {len(conf_base_list)}")
-    print(f"Total OPTIMAL configurations: {len(conf_opt_list)}")
-
-    if conf_base_list and conf_opt_list:
-        step0_base = conf_base_list[0]
-        step0_opt = conf_opt_list[0]
-        
-        aps_base = [s["satellite"] for s in step0_base.get("configuration", []) if s.get("is_access_point")]
-        aps_opt = [s["satellite"] for s in step0_opt.get("configuration", []) if s.get("is_access_point")]
-        
-        print(f"\nStep 0 ({step0_base.get('time')}):")
-        print(f"  - Satellites on corridor line: {len(step0_base.get('configuration', []))}")
-        print(f"  - APs (BASE) covering vessel:    {aps_base}")
-        print(f"  - APs (OPTIMAL) covering vessel: {aps_opt}")
+    if conf_list:
+        step0 = conf_list[0]
+        aps_dict = step0.get("access_points", {})
+        print(f"\nStep 0 ({step0.get('time')}):")
+        print(f"  - Satellites on corridor line: {len(step0.get('configuration', []))}")
+        print(f"  - APs per-terminal ({ap_mode.value.upper()}): {aps_dict}")
 
     elapsed_real = time.time() - start_real_time
     print(colorize(f"\nNaval simulation setup completed in {elapsed_real:.2f} seconds.", "green"))
-    print(colorize("Files written to:", "green"))
-    print(f"  - data/naval_configurations_AP_base.json")
-    print(f"  - data/naval_configurations_AP_optimal.json")
+    print(colorize("File loaded/written:", "green"))
+    print(f"  - data/naval_configurations_AP_{ap_mode.value}.json")
     print(colorize("=" * 70 + "\n", "cyan"))
 
-    # 6. Naval SimPy Simulation Execution
+    # Naval SimPy Simulation Execution
     if args.run_sim:
         print(colorize("\n" + "=" * 70, "cyan"))
-        print(colorize("       SECMotionModel - Running Naval SimPy Simulation (Use Case 1)", "cyan"))
+        print(colorize(f"       SECMotionModel - Running Naval SimPy Simulation ({args.use_case.value})", "cyan"))
         print(colorize("=" * 70 + "\n", "cyan"))
 
-        configs = configs_optimal if configs_optimal else configs_base
         globals.data_configurations = configs
 
-        globals.edge_servers, globals.global_access_point = loadConfiguration(
+        globals.edge_servers = loadConfiguration(
             env, globals.data_configurations, globals.OGMs_tables
         )
         env.process(periodic_recall_Topology_monitor(env, globals.data_configurations, globals.OGMs_tables))
@@ -195,20 +152,30 @@ def main():
         globals.different_server_counter = {server.name: 0 for server in globals.edge_servers}
         globals.other_server_counter = {server.name: 0 for server in globals.edge_servers}
 
-        # Start continuous task generation with destination = vessel
+        if args.use_case == NavalUseCase.IN_NETWORK:
+            dest_terminal = vessel
+            source_terminal = None  # source defaults to destination in generate_tasks
+        elif args.use_case == NavalUseCase.TO_OBSERVER:
+            dest_terminal = observer
+            source_terminal = vessel
+        else:
+            raise ValueError(f"Unknown use case: {args.use_case}")
+
+        # Start continuous task generation
         env.process(simulation.generate_tasks(
             env,
             globals.initial_server_counter,
             globals.different_server_counter,
             globals.other_server_counter,
-            destination=vessel
+            destination=dest_terminal,
+            source=source_terminal,
         ))
 
-        print(colorize(f"[SIM] Running SimPy simulation for {args.sim_duration}s...", "yellow"))
-        env.run(until=args.sim_duration)
-        print(colorize(f"[SIM] Completed {args.sim_duration}s simulation run!\n", "green"))
+        print(colorize(f"[SIM] Running SimPy simulation for {sim_duration}s (Use Case: {args.use_case.value}, AP: {ap_mode.value})...", "yellow"))
+        env.run(until=sim_duration)
+        print(colorize(f"[SIM] Completed {sim_duration}s simulation run!\n", "green"))
 
-        vessel.print_task_summary()
+        dest_terminal.print_task_summary()
 
 
 if __name__ == "__main__":
