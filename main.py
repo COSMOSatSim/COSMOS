@@ -77,7 +77,6 @@ if __name__ == "__main__":
     # Esegui la validazione della configurazione di Routing
     RoutingManager.validate_config(config)
 
-    MaxTry = config.get("max_try", 10)
     r_algo = None
     # 1) Costruzione configurazioni
     if config.get("Build_Configurations", False):
@@ -286,8 +285,6 @@ if __name__ == "__main__":
     csv_mig = _ensure_parent_dir(csv_mig)
     csv_routing_task = _ensure_parent_dir(csv_routing_task)
 
-    # Salvo il nome del CSV nel config per eventuali moduli esterni
-    config["csv_name"] = {"name": csv_task}
     # Scrivo la config *usata* nella cartella di output della simulazione
     used_config_path = os.path.join(base_dir, "used_config.json5")
     os.makedirs(os.path.dirname(used_config_path), exist_ok=True)
@@ -305,9 +302,6 @@ if __name__ == "__main__":
 
     # 6) Esecuzione simulazione
     env.run(config['simulation_duration'])
-
-    # Definisci il nome del file di output
-    output_folder = "Generated_datasets"
 
     if config.get("save_generated_tasks_dataset", True) and globals.gbl_generated_tasks_data:
         file_name = "generated_tasks_counter.json5"

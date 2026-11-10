@@ -109,7 +109,7 @@ def TaskAssignment_ILP(
 
     ENABLE_MONITORING = config.get("enable_queue_monitoring", False)
 
-    task_obj = Task(task_id, selected_server.name, destination, env.now, task_type, image_size)
+    task_obj = Task(task_id, selected_server.name, destination, env.now, task_type, image_size, source=selected_server)
     bw_Bps, data_bytes = network_metrics(image_size)
 
     # Inizializza gli attributi solo se il monitoraggio è attivo
@@ -144,6 +144,9 @@ def TaskAssignment_ILP(
     eps_cpu, eps_net, time_in_queue = 0.0, 0.0, 0.0  # energia stimata CPU / NET che useremo per riserve e sottrazioni
     start_time = env.now
 
+    # Usa la capacità CPU effettiva del server selezionato (coerente con get_selection_score).
+    server_C_sen = getattr(selected_server, "C_sen", C_sen)
+
     _, data_bytes = network_metrics(image_size)  # solo i bytes
     eff_Bps = net_bw_override_Bps if (net_bw_override_Bps and net_bw_override_Bps > 0) else bw_Bps
 
@@ -168,10 +171,11 @@ def TaskAssignment_ILP(
     # ---------------------------
     if task_type in ("Generic_Service", "CPU_Intensive"):
         # energia richiesta per eseguire il task sul server
-        eps_cpu = selected_server.compute_execution_energy(d_cpu, C_sen, e=e_coeff)
+        eps_cpu = selected_server.compute_execution_energy(d_cpu, server_C_sen, e=e_coeff)
         # controllo se il server ha energia disponibile (tenendo conto delle riserve)
         if selected_server.energy - selected_server.energy_reserved < eps_cpu:
             reject("Insufficient Energy for CPU", fatal=False)
+            return
         # controllo se il server ha energia disponibile (tenendo conto delle riserve)
         R = Wc + d_cpu + d_net
         if R > D_r:
@@ -229,7 +233,7 @@ def TaskAssignment_ILP(
     # Branch: CPU_and_Data_Intensive (CPU + NET)
     # ---------------------------
     elif task_type in ("CPU_and_Data_Intensive"):
-        eps_cpu = selected_server.compute_execution_energy(d_cpu, C_sen, e=e_coeff)
+        eps_cpu = selected_server.compute_execution_energy(d_cpu, server_C_sen, e=e_coeff)
 
         if selected_server.energy - selected_server.energy_reserved < (eps_cpu + eps_net):
             reject("Insufficient Energy for CPU+NET", fatal=False)
@@ -734,8 +738,18 @@ def SearchNode_ILP_Hybrid_v2(
 
         # --- Coefficienti fisici ---
         P_net = float(config.get("Ptrasm", 1.0))
-        alpha_cpu, alpha_net_J_per_byte = alpha_from_physics(C_sen, e_coeff, P_net, bw_Bps)
+        alpha_cpu, alpha_net_J_per_byte = alpha_from_physics(
+            getattr(server_selected, "C_sen", C_sen), e_coeff, P_net, bw_Bps
+        )
         alpha_net = alpha_net_J_per_byte * (1024 ** 2)  # J/MB
+        # Ogni satellite può avere una capacità CPU diversa: l'ILP usa il coefficiente
+        # del nodo candidato invece di un unico valore globale.
+        alpha_cpu_by_sen = {
+            srv.name: alpha_from_physics(
+                getattr(srv, "C_sen", C_sen), e_coeff, P_net, bw_Bps
+            )[0]
+            for srv in neighbors_at_distance_one
+        }
         w_e = float(config.get("ilp_weights", {}).get("w_e", 0.5))
         w_R = float(config.get("ilp_weights", {}).get("w_R", 0.5))
 
@@ -783,6 +797,7 @@ def SearchNode_ILP_Hybrid_v2(
                 primary=str(config.get("lexi_primary", "energy")).lower(),
                 tol=float(config.get("lexi_tol", 0.10)),
                 alpha_cpu=alpha_cpu, alpha_net=alpha_net,
+                alpha_cpu_by_sen=alpha_cpu_by_sen,
                 solver_name=str(config.get("ilp_solver", "CBC")),
                 default_net_bw_MBps=bw_MBps,
                 debug=bool(config.get("ilp_debug", False)),
@@ -793,6 +808,7 @@ def SearchNode_ILP_Hybrid_v2(
                 snapshot=snap, k=server_selected.name, picked_tasks=[str(task_id)],
                 w_energy=w_e, w_time=w_R,
                 alpha_cpu=alpha_cpu, alpha_net=alpha_net,
+                alpha_cpu_by_sen=alpha_cpu_by_sen,
                 solver_name="CBC", use_node_Rmax_norm=False,
                 default_net_bw_MBps=bw_MBps,
                 debug=False, tasks_from_prof=False

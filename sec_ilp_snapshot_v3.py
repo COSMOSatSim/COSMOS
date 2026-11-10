@@ -399,6 +399,7 @@ def pick_solver(solver_name: str = "AUTO"):
 def solve_on_Ek(snapshot: Snapshot, k: str, picked_tasks: List[str],
                 w_energy: float = 0.5, w_time: float = 0.5,
                 alpha_cpu: float = 1.0, alpha_net: float = 5000.0,
+                alpha_cpu_by_sen: Optional[Dict[str, float]] = None,
                 solver_name: str = "AUTO", use_node_Rmax_norm: bool = False,
                 default_net_bw_MBps: float = 3125.0,
                 debug: bool = False,
@@ -442,7 +443,8 @@ def solve_on_Ek(snapshot: Snapshot, k: str, picked_tasks: List[str],
                 task_dnet_is_seconds=False,
                 queues_dnet_is_seconds=False
             )
-            E[r_id][i] = compute_E_ri(t, preE, alpha_cpu, alpha_net)
+            node_alpha_cpu = (alpha_cpu_by_sen or {}).get(i, alpha_cpu)
+            E[r_id][i] = compute_E_ri(t, preE, node_alpha_cpu, alpha_net)
 
 
 
@@ -538,6 +540,7 @@ def solve_on_Ek_hierarchical(
     tol: float = 0.10,               # tolleranza in [0,1], es. 0.10 = +10%
     alpha_cpu: float = 1.0,
     alpha_net: float = 5000.0,
+    alpha_cpu_by_sen: Optional[Dict[str, float]] = None,
     solver_name: str = "AUTO",
     default_net_bw_MBps: float = 3125.0,
     debug: bool = False,
@@ -583,7 +586,8 @@ def solve_on_Ek_hierarchical(
                 task_dnet_is_seconds=False,
                 queues_dnet_is_seconds=False
             )
-            E[r_id][i] = compute_E_ri(t, preE, alpha_cpu, alpha_net)
+            node_alpha_cpu = (alpha_cpu_by_sen or {}).get(i, alpha_cpu)
+            E[r_id][i] = compute_E_ri(t, preE, node_alpha_cpu, alpha_net)
 
     # Utility per costruire un problema con vincoli "di base"
     def _build_base_lp(minimize: str):

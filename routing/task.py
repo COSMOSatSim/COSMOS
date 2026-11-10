@@ -37,7 +37,7 @@ class Task:
         routingInitTime: float,
         task_type: str,
         image_size: float,
-        source: str = ""
+        source: Any = None
     ) -> None:
         """
         Initialize a network Task entity.
@@ -68,7 +68,8 @@ class Task:
         self.task_type = task_type  # Es: "CPU_Intensive"
         self.weight = image_size  # Dimensione Immagine (MB)
 
-        self.source = source if source != "" else current_node  # Nodo di partenza
+        self.source = source
+        self.source_node: str = source.name if source is not None else current_node
 
         self.current_node = current_node  # Server sul quale si trova
         self.destination: BaseTerminal = destination  # Oggetto Terminale di destinazione
@@ -194,6 +195,16 @@ def generate_Tasks_Status(csv_filename, folder):
             routing_end = None
 
         # Crea una lista con le informazioni principali del task
+        return_dur = (
+            round(t.returnEndTime - t.returnInitTime, 3)
+            if getattr(t, "returnEndTime", None) is not None and getattr(t, "returnInitTime", None) is not None
+            else None
+        )
+        rtt_val = round(getattr(t, "rtt", 0.0), 3) if getattr(t, "rtt", None) is not None else None
+        g_delay = round(getattr(t, "ground_queue_delay", 0.0), 3) if getattr(t, "ground_queue_delay", None) is not None else None
+        c_time = round(getattr(t, "d_cpu", 0.0), 3) if getattr(t, "d_cpu", None) is not None else None
+        weight_val = round(getattr(t, "weight", 0.0), 3)
+
         elem = [
             t.id,  # ID del task
             t.current_node,  # Nodo corrente
@@ -203,7 +214,12 @@ def generate_Tasks_Status(csv_filename, folder):
             round(t.routingInitTime, 2),  # Tempo di inizio routing arrotondato
             routing_end,  # Tempo di fine routing arrotondato (se presente)
             durata,  # Durata del routing (se presente)
-            get_algo_percentages(t)
+            get_algo_percentages(t),
+            weight_val,
+            g_delay,
+            c_time,
+            return_dur,
+            rtt_val
         ]
         # Aggiungi le informazioni del task alla lista totale
         total_tasks.append(elem)
@@ -218,7 +234,7 @@ def generate_Tasks_Status(csv_filename, folder):
     print(
         "id     | CurrentNode          | Hop | Label           | Resolution    | Start Routing (s) | End Routing (s) | duration      | Algo")
     for elem in total_tasks:
-        id_, current_node, hop, label, task_type, routing_start, routing_end, durata, algorithms = elem
+        id_, current_node, hop, label, task_type, routing_start, routing_end, durata, algorithms = elem[:9]
         algorithms_str = ', '.join([f"{k}:{v}%" for k, v in algorithms.items()]) if algorithms else "-"
 
         row = (
@@ -227,12 +243,18 @@ def generate_Tasks_Status(csv_filename, folder):
             f"{str(durata):<13} | {algorithms_str}"
         )
 
-        if label == "TASK_ARRIVED":
+        if label in ("TASK_ARRIVED", "ROUND_TRIP_COMPLETED"):
             row = colorize(row, "green")
             TArr += 1
         elif label == "TTL_EXPIRED":
             row = colorize(row, "red")
             TExp += 1
+        elif label in ("IN_GROUND_QUEUE", "IN_GROUND_COMPUTE", "COMPLETED_ON_OBSERVER"):
+            row = colorize(row, "cyan")
+            ToS += 1
+        elif label == "RETURN_ON_SIMULATION":
+            row = colorize(row, "yellow")
+            ToS += 1
         elif label == "SEN_OUT_OF_BUFF":
             row = colorize(row, "orange")
             Tsob += 1
@@ -246,10 +268,10 @@ def generate_Tasks_Status(csv_filename, folder):
     print()  # Riga vuota alla fine per separare dall'output successivo
 
     # FASE DI SCRITTURA CSV
-        # FASE DI SCRITTURA CSV
     headers = [
         "TaskID", "CurrentNode", "Hop", "Label", "Resolution",
-        "RoutingInitTime", "RoutingEndTime", "Duration", "Algorithms"
+        "RoutingInitTime", "RoutingEndTime", "Duration", "Algorithms",
+        "Weight_MB", "GroundQueueDelay", "ComputeTime", "ReturnDuration", "RTT"
     ]
 
     # Assicura l'esistenza della cartella del CSV (uso path assoluto)

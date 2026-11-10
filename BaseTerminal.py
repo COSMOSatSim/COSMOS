@@ -44,6 +44,8 @@ class BaseTerminal(ABC):
         self.tasks: List[Any] = []
         self.arrived_tasks: List[Any] = []
         self.packets: List[Any] = []
+        self.cpu_dev: Optional[Any] = None
+        self.completed_tasks: List[Any] = []
 
     def getPositionVector(self, t: Any) -> List[float]:
         """

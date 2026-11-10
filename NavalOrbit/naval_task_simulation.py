@@ -46,7 +46,7 @@ def _handle_in_network_assignment(
         routingInitTime=env.now,
         task_type=task_type,
         image_size=image_size,
-        source=vessel.name
+        source=vessel
     )
 
     bw_Bps, data_bytes = network_metrics(image_size)
@@ -80,7 +80,9 @@ def _handle_in_network_assignment(
     except Exception:
         Wc = getattr(selected_server, "W_cpu", lambda: 0.0)()
 
-    C_sen = getattr(selected_server, 'C_sen', globals.rnd.uniform(selected_server.C_sen_min, selected_server.C_sen_max))
+    C_sen = getattr(selected_server, 'C_sen', None)
+    if C_sen is None:
+        C_sen = globals.rnd.uniform(selected_server.C_sen_min, selected_server.C_sen_max)
     e_coeff = config.get("energy_coefficient", 5e-26)
 
     # ---------------------------
@@ -311,7 +313,7 @@ def _handle_to_observer_assignment(
         routingInitTime=env.now,
         task_type=task_type,
         image_size=image_size,
-        source=vessel.name
+        source=vessel
     )
 
     bw_Bps, data_bytes = network_metrics(image_size)

@@ -35,6 +35,10 @@ from NavalOrbit.naval_topology import (
     build_naval_configurations,
     load_saved_naval_configuration
 )
+from NavalOrbit.naval_relay_simulation import (
+    generate_naval_relay_tasks,
+    print_relay_diagnostic_summary
+)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -75,6 +79,7 @@ def main() -> None:
     config = globals.config
     env = simpy.Environment()
     observer = load_obs_settings()
+    observer.env = env
     globals.observer = observer
 
     sim_duration = float(config.get("simulation_duration", 300.0))
@@ -155,27 +160,50 @@ def main() -> None:
         if args.use_case == NavalUseCase.IN_NETWORK:
             dest_terminal = vessel
             source_terminal = None  # source defaults to destination in generate_tasks
+            # Start continuous task generation with edge compute
+            env.process(simulation.generate_tasks(
+                env,
+                globals.initial_server_counter,
+                globals.different_server_counter,
+                globals.other_server_counter,
+                destination=dest_terminal,
+                source=source_terminal,
+            ))
         elif args.use_case == NavalUseCase.TO_OBSERVER:
+            # Configura il pool di calcolo multi-core a terra sull'Observer
+            ground_cores = int(config.get("ground_cpu_capacity", 10))
+            observer.cpu_dev = simpy.Resource(env, capacity=ground_cores)
             dest_terminal = observer
             source_terminal = vessel
+            # Start continuous relay task generation (zero satellite CPU)
+            env.process(generate_naval_relay_tasks(
+                env,
+                source=source_terminal,
+                destination=dest_terminal,
+            ))
         else:
             raise ValueError(f"Unknown use case: {args.use_case}")
-
-        # Start continuous task generation
-        env.process(simulation.generate_tasks(
-            env,
-            globals.initial_server_counter,
-            globals.different_server_counter,
-            globals.other_server_counter,
-            destination=dest_terminal,
-            source=source_terminal,
-        ))
 
         print(colorize(f"[SIM] Running SimPy simulation for {sim_duration}s (Use Case: {args.use_case.value}, AP: {ap_mode.value})...", "yellow"))
         env.run(until=sim_duration)
         print(colorize(f"[SIM] Completed {sim_duration}s simulation run!\n", "green"))
 
         dest_terminal.print_task_summary()
+        if args.use_case == NavalUseCase.TO_OBSERVER:
+            source_terminal.print_task_summary()
+            print_relay_diagnostic_summary(source=source_terminal, destination=dest_terminal)
+
+        # Generazione e salvataggio CSV dello stato di tutti i task (routing, coda, calcolo, RTT)
+        from EdgeServer import build_task_csv_path
+        from routing.task import generate_Tasks_Status
+
+        base_dir = f"result/naval/{args.use_case.value}/{ap_mode.value}"
+        os.makedirs(base_dir, exist_ok=True)
+        atime = config.get("arrival_time_exponential", 0.5)
+        cpu_mean = config.get("CPU_timeout", {}).get("gen", {}).get("mean", 0.05)
+        csv_routing_task = build_task_csv_path(base_dir, atime, cpu_mean)
+        print(colorize(f"\n[CSV] Generazione file stato task in {base_dir}...", "cyan"))
+        generate_Tasks_Status(csv_routing_task, base_dir)
 
 
 if __name__ == "__main__":

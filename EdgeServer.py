@@ -541,7 +541,9 @@ class EdgeServer:
         R_predicted = Wc + d_cpu + Wn + d_net
 
         # 2) stima energia CPU (richiede C_sen)
-        C_sen = getattr(self, 'C_sen', globals.rnd.uniform(self.C_sen_min, self.C_sen_max))
+        C_sen = getattr(self, 'C_sen', None)
+        if C_sen is None:
+            C_sen = globals.rnd.uniform(self.C_sen_min, self.C_sen_max)
 
 
         eps_cpu = self.compute_execution_energy(d_cpu, C_sen, e=config.get("energy_coefficient", 5e-26))

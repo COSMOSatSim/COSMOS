@@ -53,3 +53,7 @@ ideas/
 *.log
 naval_log.txt
 
+# Temporary LaTeX report directory (untracked)
+/relazione_latex/
+/tmp_relazione/
+

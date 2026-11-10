@@ -1,6 +1,5 @@
 import string
 import math
-import json5
 import globals
 
 from skyfield.toposlib import GeographicPosition
@@ -22,11 +21,6 @@ def generate_vessel_name() -> str:
     # Use globals.rnd for reproducible random choice
     chars = string.ascii_uppercase + string.digits
     return ''.join(globals.rnd.choice(chars) for _ in range(5))
-
-def load_generation_rules(file_path: str = "NavalOrbit/vessel_setting.json5") -> dict:
-    with open(file_path, "r") as file:
-        data = json5.load(file)
-        return data.get("generation_rules", {})
 
 def calculate_destination(lat1_deg, lon1_deg, bearing_deg, distance_km):
     R = 6371.0 # Earth radius in km
