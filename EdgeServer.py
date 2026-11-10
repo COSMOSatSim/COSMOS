@@ -493,6 +493,16 @@ class EdgeServer:
                 trasmission_time = (task.weight/bandwidth) if bandwidth > 0 else float('inf')
                 print(f"[{task.id}][{algorithm}] CONSEGNATO! {self.name} -> {receiver.name} | Tramission-time: {trasmission_time}")
 
+            monitor = getattr(globals, "gui_monitor", None)
+            if monitor is not None:
+                monitor.record_link(
+                    env.now, env.now + trasmission_time,
+                    self.name, receiver.name, task.id, task.weight,
+                    bandwidth / (1024 ** 2), trasmission_time,
+                    "downlink" if isinstance(receiver, BaseTerminal) else "isl",
+                    algorithm,
+                )
+
             task.hop += 1
             task.ttl -= 1   
             

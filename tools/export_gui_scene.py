@@ -26,6 +26,7 @@ python tools/export_gui_scene.py \
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from datetime import datetime, timezone
@@ -44,9 +45,13 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export SECMotionModel configurations to a GUI scene directory"
     )
-    parser.add_argument("--config", required=True, help="naval configurations JSON")
+    parser.add_argument("--config", default=None, help="naval configurations JSON")
     parser.add_argument("--out", required=True, help="output scene directory")
     parser.add_argument("--trace", default=None, help="task trace JSONL produced by the simulation")
+    parser.add_argument("--run-dir", default=None,
+                        help="simulation run directory with gui_run.json, gui_state.csv and gui_links.csv")
+    parser.add_argument("--state", default=None, help="gui_state.csv (overrides --run-dir)")
+    parser.add_argument("--links", default=None, help="gui_links.csv (overrides --run-dir)")
     parser.add_argument(
         "--core-config",
         default="config/config.json5",
@@ -90,6 +95,62 @@ def life_remaining_seconds(life: Any) -> float | None:
         if isinstance(value, (int, float)):
             return float(value)
     return None
+
+
+def load_state_csv(path: Path) -> list[tuple[float, dict[str, dict[str, Any]]]]:
+    """Load gui_state.csv into time-sorted (time, {satellite: metrics}) samples."""
+    if not path.exists():
+        return []
+    samples: dict[float, dict[str, dict[str, Any]]] = {}
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            name = row.get("satellite")
+            if not name:
+                continue
+            try:
+                time_s = float(row.get("time", 0.0) or 0.0)
+                metrics = {
+                    "cpu_queue": int(float(row.get("cpu_queue", 0) or 0)),
+                    "cpu_service": int(float(row.get("cpu_service", 0) or 0)),
+                    "net_queue": int(float(row.get("net_queue", 0) or 0)),
+                    "net_service": int(float(row.get("net_service", 0) or 0)),
+                    "completed": int(float(row.get("completed_tasks", 0) or 0)),
+                    "energy_j": float(row.get("energy_j", 0.0) or 0.0),
+                    "energy_reserved_j": float(row.get("energy_reserved_j", 0.0) or 0.0),
+                }
+            except (TypeError, ValueError):
+                continue
+            samples.setdefault(time_s, {})[name] = metrics
+    return sorted(samples.items())
+
+
+def load_links_csv(path: Path) -> list[dict[str, Any]]:
+    """Load gui_links.csv into normalized traffic events."""
+    if not path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                t0 = float(row.get("t_start", 0.0) or 0.0)
+                t1 = float(row.get("t_end", t0) or t0)
+                duration = float(row.get("duration_s", max(0.0, t1 - t0)) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            events.append({
+                "t0": round(t0, 9),
+                "t1": round(t1, 9),
+                "from": row.get("source", ""),
+                "to": row.get("target", ""),
+                "task": int(float(row.get("task", 0) or 0)),
+                "size_mb": round(float(row.get("size_mb", 0.0) or 0.0), 6),
+                "bandwidth_mbps": round(float(row.get("bandwidth_mbps", 0.0) or 0.0), 6),
+                "duration_s": round(duration, 9),
+                "kind": row.get("kind", ""),
+                "algo": row.get("algorithm", ""),
+            })
+    events.sort(key=lambda item: (item["t0"], item["task"]))
+    return events
 
 
 def build_satellite_cache(configurations: list[dict[str, Any]], timescale):
@@ -224,9 +285,28 @@ def convert_trace(trace_path: Path, destination: Path) -> int:
 def main() -> int:
     args = parse_arguments()
 
+    run_meta: dict[str, Any] = {}
+    run_dir = Path(args.run_dir) if args.run_dir else None
+    if run_dir is not None:
+        meta_path = run_dir / "gui_run.json"
+        if meta_path.exists():
+            with meta_path.open("r", encoding="utf-8") as handle:
+                run_meta = json.load(handle)
+        if args.state is None:
+            args.state = str(run_dir / run_meta.get("state", "gui_state.csv"))
+        if args.links is None:
+            args.links = str(run_dir / run_meta.get("links", "gui_links.csv"))
+        if args.config is None:
+            args.config = run_meta.get("config")
+
+    if not args.config:
+        raise SystemExit("--config is required (or use --run-dir with gui_run.json)")
     config_path = Path(args.config)
     if not config_path.exists():
         raise SystemExit(f"configuration not found: {config_path}")
+
+    state_samples = load_state_csv(Path(args.state)) if args.state else []
+    traffic_events = load_links_csv(Path(args.links)) if args.links else []
 
     with config_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -268,6 +348,8 @@ def main() -> int:
     )
 
     exported = 0
+    load_samples: list[dict[str, Any]] = []
+    frame_ids: dict[int, set[str]] = {}
     for index in range(start, end):
         step = configurations[index]
         step_vessel = step.get("vessel_position") or {}
@@ -286,9 +368,48 @@ def main() -> int:
         )
         with (frames_dir / f"{index:06d}.json").open("w", encoding="utf-8") as handle:
             json.dump(document, handle, separators=(",", ":"))
+
+        frame_ids[index] = {satellite["id"] for satellite in document["satellites"]}
+
         exported += 1
         if exported % 10 == 0 or exported == end - start:
             print(f"exported frame {index} ({exported}/{end - start})")
+
+    if state_samples:
+        for time_s, metrics_by_name in state_samples:
+            if time_s < start * interval - 1e-9 or time_s >= end * interval - 1e-9:
+                continue
+            frame_index = min(int(time_s // interval), end - 1)
+            ids = frame_ids.get(frame_index)
+            if not ids:
+                continue
+            entries = [
+                {"id": name, **metrics}
+                for name, metrics in metrics_by_name.items()
+                if name in ids
+            ]
+            if entries:
+                load_samples.append({
+                    "t": round(time_s, 6),
+                    "frame": frame_index,
+                    "satellites": entries,
+                })
+
+    loads_name = None
+    if load_samples:
+        loads_name = "loads.jsonl"
+        with (output_dir / loads_name).open("w", encoding="utf-8") as handle:
+            for sample in load_samples:
+                handle.write(json.dumps(sample, separators=(",", ":")) + "\n")
+        print(f"exported {len(load_samples)} load samples")
+
+    traffic_name = None
+    if traffic_events:
+        traffic_name = "traffic.jsonl"
+        with (output_dir / traffic_name).open("w", encoding="utf-8") as handle:
+            for event in traffic_events:
+                handle.write(json.dumps(event, separators=(",", ":")) + "\n")
+        print(f"exported {len(traffic_events)} traffic events")
 
     tasks_name = None
     if args.trace:
@@ -299,10 +420,17 @@ def main() -> int:
         print(f"exported {count} task events")
         tasks_name = "tasks.jsonl"
 
+    has_live_data = bool(loads_name or traffic_name)
     manifest = {
-        "version": 1,
+        "version": 2 if has_live_data else 1,
         "generator": "SECMotionModel tools/export_gui_scene.py",
-        "source": {"config": str(config_path), "trace": args.trace},
+        "source": {
+            "config": str(config_path),
+            "trace": args.trace,
+            "run_dir": str(run_dir) if run_dir is not None else None,
+            "state": args.state,
+            "links": args.links,
+        },
         "t0": configurations[start].get("time"),
         "interval_s": interval,
         "duration_s": round((end - start) * interval, 3),
@@ -323,6 +451,23 @@ def main() -> int:
     }
     if tasks_name:
         manifest["tasks"] = tasks_name
+    if loads_name:
+        manifest["loads"] = loads_name
+        manifest["load"] = {
+            "metric": "max",
+            "cpu_capacity": float(run_meta.get(
+                "cpu_capacity", core_config.get("cpu_capacity_queue", 5))),
+            "net_capacity": float(run_meta.get(
+                "net_capacity", core_config.get("net_capacity_queue", 5))),
+        }
+    if traffic_name:
+        manifest["traffic"] = traffic_name
+    if loads_name or traffic_name:
+        manifest["default_layers"] = {
+            "load": bool(loads_name),
+            "traffic": bool(traffic_name),
+            "tasks": False,
+        }
 
     with (output_dir / "manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)

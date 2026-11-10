@@ -60,6 +60,11 @@ def parse_arguments() -> argparse.Namespace:
         help="Run the SimPy simulation after topology generation/loading"
     )
     parser.add_argument(
+        "--gui-export",
+        action="store_true",
+        help="Write gui_state.csv, gui_links.csv and gui_run.json for the GUI"
+    )
+    parser.add_argument(
         "--use-case",
         type=NavalUseCase,
         default=NavalUseCase.IN_NETWORK,
@@ -184,8 +189,35 @@ def main() -> None:
         else:
             raise ValueError(f"Unknown use case: {args.use_case}")
 
+        gui_monitor = None
+        if args.gui_export:
+            from NavalOrbit.gui_monitor import (
+                GuiMonitor,
+                collect_gui_state,
+                write_run_metadata,
+            )
+
+            gui_dir = f"result/naval/{args.use_case.value}/{ap_mode.value}"
+            os.makedirs(gui_dir, exist_ok=True)
+            sample_interval = float(config.get("gui_sample_interval", 0.5))
+            gui_monitor = GuiMonitor(gui_dir, sample_interval, sim_duration)
+            globals.gui_monitor = gui_monitor
+            env.process(collect_gui_state(
+                env, gui_monitor, sample_interval, sim_duration - interval
+            ))
+            write_run_metadata(
+                gui_dir, config, args.use_case.value, ap_mode.value,
+                configs.get("t0"), sim_duration, interval, sample_interval,
+                f"data/naval_configurations_AP_{ap_mode.value}.json",
+            )
+
         print(colorize(f"[SIM] Running SimPy simulation for {sim_duration}s (Use Case: {args.use_case.value}, AP: {ap_mode.value})...", "yellow"))
-        env.run(until=sim_duration)
+        try:
+            env.run(until=sim_duration)
+        finally:
+            if gui_monitor is not None:
+                gui_monitor.close()
+                globals.gui_monitor = None
         print(colorize(f"[SIM] Completed {sim_duration}s simulation run!\n", "green"))
 
         dest_terminal.print_task_summary()
