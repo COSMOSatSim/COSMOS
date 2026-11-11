@@ -154,6 +154,52 @@ python Plotters/dome_plotter.py
 
 ---
 
+## 🖥 Interactive GUI (v0.2)
+
+The native C++20/WebGPU visualizer lives in
+[SECMotionModel-GUI](https://github.com/HashtagViinz/SECMotionModel-GUI) and is
+included as the `gui/` submodule. It renders satellite motion, ISL links,
+visibility domes and, from v0.2, the real per-satellite load and the forwards
+recorded during a simulation run.
+
+The GUI is optional: the simulator does not import it, and no GUI data is
+written unless `--gui-export` is passed explicitly.
+
+```bash
+# 1. opt-in export during a naval run (off by default)
+python3 naval_main.py --load-only --run-sim --gui-export --use-case IN_NETWORK
+
+# 2. open the exported run (GUI repository launcher)
+./gui/scripts/run_gui.sh --run result/naval/IN_NETWORK/optimal
+```
+
+The export writes three files next to the normal results:
+
+| File | Content |
+|---|---|
+| `gui_state.csv` | per-satellite CPU/NET queues, service, completions and energy every 0.5 s |
+| `gui_links.csv` | one row per real `EdgeServer.transmit_task` forward (ISL or downlink) |
+| `gui_run.json` | run metadata: config, duration, capacities, sampling interval |
+
+`run_gui.sh --run` converts these files into a cached scene (v2) and opens it;
+the first launch takes about 20 s, later launches reuse the cache. The GUI
+shows a load heatmap (`max(CPU, NET)`), link traffic colors, moving waves for
+active forwards, HUD summaries and per-satellite telemetry. Scenes v1 without
+telemetry remain supported.
+
+Build instructions and the full command reference are in the
+[GUI README](https://github.com/HashtagViinz/SECMotionModel-GUI#build) and
+[`docs/commands.md`](https://github.com/HashtagViinz/SECMotionModel-GUI/blob/v0.2.0/docs/commands.md).
+The v0.2 results and evidence are documented in
+[`docs/REPORT-live-traffic.md`](https://github.com/HashtagViinz/SECMotionModel-GUI/blob/v0.2.0/docs/REPORT-live-traffic.md).
+Prebuilt Linux AppImage and Windows exe:
+[release v0.2.0](https://github.com/HashtagViinz/SECMotionModel-GUI/releases/tag/v0.2.0).
+
+Currently only `naval_main.py` exposes `--gui-export`; `main.py` still produces
+the terrestrial `simulation_dataset.json` only.
+
+---
+
 ## ⚙️ Configuration
 
 Main parameters in `config/config.json5`:
