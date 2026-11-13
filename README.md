@@ -176,6 +176,9 @@ python3 naval_main.py --load-only --run-sim --gui-export \
 
 # 2. open the exported run (GUI repository launcher)
 ./gui/scripts/run_gui.sh --run result/naval/IN_NETWORK/optimal
+
+# or open the TLE base scene with every satellite in data/tle_data.txt
+./gui/scripts/run_gui.sh
 ```
 
 The export writes three files next to the normal results:
@@ -190,6 +193,11 @@ The export writes three files next to the normal results:
 `hop_start`, `hop_end`, `compute`, `deliver`, `complete` and `fail` events.
 When `tasks.jsonl` sits in the run directory, `run_gui.sh --run` picks it up
 automatically.
+
+With no arguments, `run_gui.sh` generates the TLE base scene from
+`data/tle_data.txt` (about 30 s, cached under `~/.cache/secgui/base`) and opens
+it with the orbit camera. Use `--empty` for the import panel or `--run <dir>`
+for a telemetry run.
 
 `run_gui.sh --run` converts these files into a cached scene (v2) and opens it;
 the first launch takes about 20 s, later launches reuse the cache. The GUI
