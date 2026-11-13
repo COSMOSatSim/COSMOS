@@ -88,6 +88,13 @@ class Task:
         self.routeRequestIst = None  # Timestamp start route Request
         self.RouteReply = False  # Bool allow reply
         self.selected_route = []  # Lista percorso da seguire
+
+        trace = getattr(globals, "task_trace", None)
+        if trace is not None:
+            trace.emit(
+                routingInitTime, "spawn", task_id,
+                node=current_node, type=task_type, size_mb=image_size,
+            )
     
     def __str__(self):
         """

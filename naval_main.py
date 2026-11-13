@@ -65,6 +65,12 @@ def parse_arguments() -> argparse.Namespace:
         help="Write gui_state.csv, gui_links.csv and gui_run.json for the GUI"
     )
     parser.add_argument(
+        "--trace-jsonl",
+        default=None,
+        metavar="PATH",
+        help="Write native task events (tasks.jsonl) for the GUI"
+    )
+    parser.add_argument(
         "--use-case",
         type=NavalUseCase,
         default=NavalUseCase.IN_NETWORK,
@@ -80,6 +86,8 @@ def main() -> None:
     """
     # 1. SimPy environment and configuration setup
     args = parse_arguments()
+    if args.trace_jsonl and not args.run_sim:
+        raise SystemExit("--trace-jsonl requires --run-sim")
     start_real_time = time.time()
     config = globals.config
     env = simpy.Environment()
@@ -189,6 +197,13 @@ def main() -> None:
         else:
             raise ValueError(f"Unknown use case: {args.use_case}")
 
+        task_trace = None
+        if args.trace_jsonl:
+            from NavalOrbit.gui_monitor import TaskTrace
+
+            task_trace = TaskTrace(args.trace_jsonl)
+            globals.task_trace = task_trace
+
         gui_monitor = None
         if args.gui_export:
             from NavalOrbit.gui_monitor import (
@@ -218,6 +233,9 @@ def main() -> None:
             if gui_monitor is not None:
                 gui_monitor.close()
                 globals.gui_monitor = None
+            if task_trace is not None:
+                task_trace.close()
+                globals.task_trace = None
         print(colorize(f"[SIM] Completed {sim_duration}s simulation run!\n", "green"))
 
         dest_terminal.print_task_summary()

@@ -175,6 +175,12 @@ class EdgeServer:
             (task_id, task_type, arrival_time_system, img_size, rejection_reason, d_cpu )
         )
         print(f"[Task {task_id}] REJECTED on {self.name} due to: {rejection_reason}")
+        trace = getattr(globals, "task_trace", None)
+        if trace is not None:
+            trace.emit(
+                arrival_time_system, "fail", task_id,
+                node=self.name, reason=rejection_reason,
+            )
 
     def task_completed(self, task_id, task_type, arrival_time_system, arrival_time_task_queue,
                        start_time, end_time, execution_time, service_time, time_in_queue,
@@ -198,6 +204,10 @@ class EdgeServer:
              transfer_time, image_size,
              DeadLine, exec_after_set, eps_cpu, eps_net, total_energy, self.energy)
         )
+
+        trace = getattr(globals, "task_trace", None)
+        if trace is not None:
+            trace.emit(end_time, "compute", task_id, node=self.name)
 
         print(f"[Task {task_id}] Task eseguito su {self.name} {self.elev_angle} degrees | "
               f"CPU={eps_cpu:.4f}J, NET={eps_net:.4f}J, TOTAL={total_energy:.4f}J, "
@@ -472,6 +482,7 @@ class EdgeServer:
         """
         Simulates the physical transmission of a task.
         """
+        trace = getattr(globals, "task_trace", None)
         if task.ttl > 0:
             # Gestione dell'attesa nell'env
             if not isinstance(receiver, BaseTerminal):
@@ -503,6 +514,13 @@ class EdgeServer:
                     algorithm,
                 )
 
+            if trace is not None:
+                trace.emit(
+                    env.now, "hop_start", task.id,
+                    **{"from": self.name, "to": receiver.name},
+                    algo=algorithm, duration_s=trasmission_time,
+                )
+
             task.hop += 1
             task.ttl -= 1   
             
@@ -510,6 +528,12 @@ class EdgeServer:
             
             self.tasks.remove(task)             # Rimuoviamo il task dal Sender
             yield env.timeout(trasmission_time)
+
+            if trace is not None:
+                trace.emit(
+                    env.now, "hop_end", task.id,
+                    **{"from": self.name, "to": receiver.name},
+                )
             
             receiver.tasks.append(task)         # Inviamo il task al Receiver
             
@@ -518,6 +542,16 @@ class EdgeServer:
             if task.destination == receiver or task.dest_node == receiver.name:
                 task.arrived = True
                 task.label = 'TASK_ARRIVED'
+                if trace is not None:
+                    trace.emit(
+                        env.now, "deliver", task.id,
+                        **{"from": self.name, "to": receiver.name},
+                    )
+                    trace.emit(
+                        env.now, "complete", task.id,
+                        node=receiver.name,
+                        rtt_s=env.now - task.routingInitTime,
+                    )
 
             task.visited.add(receiver.name)            # Aggiorno i visitati
 
@@ -525,6 +559,11 @@ class EdgeServer:
             # Rimuoviamo il task
             print(f"[{task.id}] RIMOZIONE TASK DA {self.name}, TTL finito")
             task.label = 'TTL_EXPIRED'
+            if trace is not None:
+                trace.emit(
+                    env.now, "fail", task.id,
+                    node=self.name, reason="TTL_EXPIRED",
+                )
             self.dead_tasks.append(task)
             self.tasks.remove(task)
 

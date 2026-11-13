@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from pathlib import Path
 
 STATE_FIELDS = [
@@ -39,6 +40,42 @@ LINK_FIELDS = [
     "kind",
     "algorithm",
 ]
+
+
+class TaskTrace:
+    """Write the native GUI task trace (tasks.jsonl) during a simulation run.
+
+    Events follow schema/tasks-v1.schema.json: spawn, hop_start, hop_end,
+    compute, deliver, complete and fail. Enabled by ``--trace-jsonl``.
+    """
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = self.path.open("w", encoding="utf-8")
+        self._closed = False
+
+    def emit(self, t, event, task, **fields):
+        if self._closed:
+            return
+        record = {
+            "t": round(float(t), 6),
+            "event": event,
+            "task": int(task),
+        }
+        for key, value in fields.items():
+            if value is None:
+                continue
+            if isinstance(value, float) and not math.isfinite(value):
+                continue
+            record[key] = value
+        self._file.write(json.dumps(record, separators=(",", ":")) + "\n")
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._file.close()
 
 
 class GuiMonitor:

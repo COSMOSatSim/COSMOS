@@ -298,6 +298,10 @@ def main() -> int:
             args.links = str(run_dir / run_meta.get("links", "gui_links.csv"))
         if args.config is None:
             args.config = run_meta.get("config")
+        if args.trace is None:
+            candidate = run_dir / "tasks.jsonl"
+            if candidate.exists():
+                args.trace = str(candidate)
 
     if not args.config:
         raise SystemExit("--config is required (or use --run-dir with gui_run.json)")

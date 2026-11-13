@@ -169,6 +169,11 @@ written unless `--gui-export` is passed explicitly.
 # 1. opt-in export during a naval run (off by default)
 python3 naval_main.py --load-only --run-sim --gui-export --use-case IN_NETWORK
 
+# optional: native task trace for the task-pulse layer
+python3 naval_main.py --load-only --run-sim --gui-export \
+  --trace-jsonl result/naval/IN_NETWORK/optimal/tasks.jsonl \
+  --use-case IN_NETWORK
+
 # 2. open the exported run (GUI repository launcher)
 ./gui/scripts/run_gui.sh --run result/naval/IN_NETWORK/optimal
 ```
@@ -180,6 +185,11 @@ The export writes three files next to the normal results:
 | `gui_state.csv` | per-satellite CPU/NET queues, service, completions and energy every 0.5 s |
 | `gui_links.csv` | one row per real `EdgeServer.transmit_task` forward (ISL or downlink) |
 | `gui_run.json` | run metadata: config, duration, capacities, sampling interval |
+
+`--trace-jsonl` is optional and adds `tasks.jsonl` with native `spawn`,
+`hop_start`, `hop_end`, `compute`, `deliver`, `complete` and `fail` events.
+When `tasks.jsonl` sits in the run directory, `run_gui.sh --run` picks it up
+automatically.
 
 `run_gui.sh --run` converts these files into a cached scene (v2) and opens it;
 the first launch takes about 20 s, later launches reuse the cache. The GUI
