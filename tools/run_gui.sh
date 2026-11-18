@@ -102,7 +102,9 @@ export_scene() {
 				--run-dir "$source" --out "$tmp") 1>&2
 		else
 			local trace_args=()
-			[ -n "$trace" ] && trace_args=(--trace "$trace")
+			if [ -n "$trace" ]; then
+				trace_args=(--trace "$trace")
+			fi
 			(cd "$CORE" && python3 tools/export_gui_scene.py \
 				--config "$source" --core-config config/config.json5 \
 				--out "$tmp" "${trace_args[@]}") 1>&2
@@ -144,7 +146,9 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-[ -n "$gui_path" ] && GUI_LAUNCHER="$gui_path"
+if [ -n "$gui_path" ]; then
+	GUI_LAUNCHER="$gui_path"
+fi
 [ -x "$GUI_LAUNCHER" ] || {
 	echo "error: GUI launcher not found: $GUI_LAUNCHER" >&2
 	exit 1
@@ -180,8 +184,12 @@ if [ -n "$config_path" ]; then
 			[ "$arg" = "--camera" ] && has_camera=true
 			[ "$arg" = "--target" ] && has_target=true
 		done
-		$has_camera || forward+=(--camera vessel)
-		$has_target || forward+=(--target "$vessel")
+		if ! $has_camera; then
+			forward+=(--camera vessel)
+		fi
+		if ! $has_target; then
+			forward+=(--target "$vessel")
+		fi
 	fi
 elif [ -n "$run_path" ]; then
 	run_path="$(resolve_input "$run_path")"
