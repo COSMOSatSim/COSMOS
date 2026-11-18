@@ -158,9 +158,10 @@ files. Use `--bundle PATH` to place it elsewhere.
 
 A normal `main.py` run writes `gui_run.json` next to its results; with
 `--gui-export` it also invokes the exporter and leaves the ready-to-open scene
-in `<result>/gui_scene/` (override with `--gui-out DIR`). When queue monitoring is enabled, the exporter reads
-`simulation_dataset.json` for per-satellite load samples. An optional task
-trace can be attached with `--trace path/to/tasks.jsonl`.
+in `<result>/gui_scene/` (override with `--gui-out DIR`). When queue monitoring
+is enabled, the exporter reads `simulation_dataset.json` for per-satellite load
+samples. An optional task trace can be attached with `--trace
+path/to/tasks.jsonl`.
 
 For a new or structurally different simulation, write the small GUI scene
 contract (`manifest.json` + `frames/%06d.json` + optional sidecars, documented
