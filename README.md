@@ -58,7 +58,7 @@ Two naval use cases are available:
 Python **3.11+** is required (the code uses `enum.StrEnum`). Install the core dependencies:
 
 ```bash
-pip install simpy skyfield json5 numpy tqdm matplotlib pulp
+pip install simpy skyfield json5 numpy tqdm matplotlib pulp requests
 ```
 
 Optional dependencies for the analysis plotters:
