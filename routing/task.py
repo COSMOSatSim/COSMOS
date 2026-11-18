@@ -45,7 +45,7 @@ class Task:
         Args:
             task_id (int): Unique task identifier.
             current_node (str): Name of the node currently holding or generating the task.
-            destination (BaseTerminal): The destination terminal endpoint (Observer or Vessel).
+            destination (BaseTerminal): The destination terminal endpoint (Observer or another surface terminal).
             routingInitTime (float): Simulation timestamp when routing started.
             task_type (str): Type of task (e.g. 'Generic_Service', 'CPU_Intensive', 'Batch').
             image_size (float): Payload or image size in megabytes (MB).

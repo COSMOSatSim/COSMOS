@@ -37,9 +37,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--observer-name", default="OBS")
     parser.add_argument("--observer-lat", type=float, default=41.9028)
     parser.add_argument("--observer-lon", type=float, default=12.4964)
-    parser.add_argument("--terminal-name", default="V-ATLANTIC")
-    parser.add_argument("--terminal-lat", type=float, default=33.373586)
-    parser.add_argument("--terminal-lon", type=float, default=-47.955604)
+    parser.add_argument("--terminal-name", default="OBS")
+    parser.add_argument("--terminal-lat", type=float, default=41.9028)
+    parser.add_argument("--terminal-lon", type=float, default=12.4964)
     return parser.parse_args()
 
 

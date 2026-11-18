@@ -457,29 +457,6 @@ class RoutingManager:
         algo = findAlgorithm()
         yield from self.node.transmit_task(env, task, task.destination, algo)
 
-        # Se il task e' un risultato di ritorno che atterra sulla nave, registra l'RTT
-        if getattr(task, "is_return", False):
-            task.returnEndTime = env.now
-            task.return_hop = task.hop
-            task.rtt = task.returnEndTime - task.routingInitTime
-            task.label = "ROUND_TRIP_COMPLETED"
-            task.status = "ROUND_TRIP_COMPLETED"
-            forward_dur = task.ground_arrival_time - task.routingInitTime if getattr(task, "ground_arrival_time", None) is not None else 0.0
-            return_dur = task.returnEndTime - task.returnInitTime if getattr(task, "returnInitTime", None) is not None else 0.0
-            print(
-                colorize(
-                    f"[*ROUND-TRIP COMPLETED*] Task {task.id} consegnato alla nave {task.destination.name}! "
-                    f"RTT={task.rtt:.3f}s (Andata={forward_dur:.3f}s, "
-                    f"CPU={task.d_cpu:.2f}s, Ritorno={return_dur:.3f}s, "
-                    f"Hop A/R={getattr(task, 'forward_hop', 0)}+{task.return_hop})",
-                    "green",
-                )
-            )
-
-        if getattr(task.destination, "cpu_dev", None) is not None:
-            from NavalOrbit.naval_relay_simulation import TaskAssignment_Observer
-            env.process(TaskAssignment_Observer(env, task.destination, task))
-
     # Alias per retrocompatibilità
     deliver_to_Observer = deliver_to_terminal
 

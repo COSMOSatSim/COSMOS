@@ -46,14 +46,6 @@ ERT_OrbitAware-sim_SystemAP5/IMG_RES_bg_0.4_bcpui_0.35_bcpudi_0.25_am_0.3ah_0.5_
 /ideas/
 ideas/
 
-# Generated animations
-/NavalOrbit/animations/
-
 # Temporary logs
 *.log
-naval_log.txt
-
-# Temporary LaTeX report directory (untracked)
-/relazione_latex/
-/tmp_relazione/
 

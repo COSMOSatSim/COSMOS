@@ -63,7 +63,7 @@ def TaskAssignment_ILP(
     Args:
         env: SimPy simulation environment.
         selected_server: EdgeServer object executing or holding the task.
-        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        destination (BaseTerminal): Destination endpoint terminal (Observer or another surface terminal).
         task_id (int): Unique identifier for the task.
         image_size (float): Task data/image size in MB.
         arrival_time_system (float): Simulation timestamp when the task arrived.
@@ -535,7 +535,7 @@ def _finalize_and_assign_task(
         env: SimPy simulation environment.
         server_selected: Origin/Access Point EdgeServer.
         server: Target EdgeServer selected for executing the task.
-        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        destination (BaseTerminal): Destination endpoint terminal (Observer or another surface terminal).
         task_id (int): Unique identifier for the task.
         image_size (float): Task data size in MB.
         Volume_size (float): Extra data volume in MB.
@@ -689,7 +689,7 @@ def SearchNode_ILP_Hybrid_v2(
     Args:
         env: SimPy simulation environment.
         server_selected: Origin/Access Point EdgeServer.
-        destination (BaseTerminal): Destination endpoint terminal (Observer or Vessel).
+        destination (BaseTerminal): Destination endpoint terminal (Observer or another surface terminal).
         task_id (int): Unique identifier for the task.
         required_ram (int): Required RAM in MB.
         required_disk (int): Required Disk storage in MB.

@@ -2,7 +2,7 @@
 Base Terminal Entity Module for SECMotionModel.
 
 Defines the abstract base class `BaseTerminal` representing a surface network
-endpoint (such as a ground Observer or a maritime Vessel).
+endpoint (such as a ground Observer or another surface terminal).
 """
 
 from abc import ABC
@@ -17,8 +17,8 @@ class BaseTerminal(ABC):
     """
     Abstract base class for terrestrial and maritime endpoints in the satellite network.
 
-    Both Observer and Vessel inherit from this class to share common telemetry,
-    positioning, and task management attributes.
+    Concrete terminals (for example the ground Observer) inherit from this class
+    to share common telemetry, positioning, and task management attributes.
     """
 
     def __init__(

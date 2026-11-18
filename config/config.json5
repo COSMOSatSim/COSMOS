@@ -3,7 +3,6 @@
     enable_queue_monitoring: true,
     cpu_capacity_queue: 5,
     net_capacity_queue: 5,
-    ground_cpu_capacity: 10,
     save_generated_tasks_dataset: true,
     adding_time: 30,
     seed: 9973,

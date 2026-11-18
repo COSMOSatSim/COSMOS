@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Export SECMotionModel naval configurations to the SECMotionModel-GUI scene
-format v1.
+Export SECMotionModel configurations to the SECMotionModel-GUI scene format
+v1.
 
 The GUI never re-implements orbital mechanics: this exporter converts the
 Skyfield positions computed by the simulator into Earth-fixed ECEF/ITRS
-kilometres and writes a directory the GUI can load directly.
+kilometres and writes a directory the GUI can load directly. Terrestrial
+configurations use the observer position as the single terminal marker;
+extended configurations may provide a per-step ``vessel_position``.
 
 Output layout
 -------------
@@ -17,9 +19,8 @@ out/
 Usage
 -----
 python tools/export_gui_scene.py \
-    --config data/naval_configurations_AP_optimal.json \
-    --trace result/naval/IN_NETWORK/optimal/trace.jsonl \
-    --out ../SECMotionModel-GUI/examples/generated/naval \
+    --config data/configurations_AP_optimal.json \
+    --out /tmp/secgui/terrestrial \
     --start 0 --end 150
 """
 
@@ -45,7 +46,8 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export SECMotionModel configurations to a GUI scene directory"
     )
-    parser.add_argument("--config", default=None, help="naval configurations JSON")
+    parser.add_argument("--config", default=None,
+                        help="configurations JSON (terrestrial or extended)")
     parser.add_argument("--out", required=True, help="output scene directory")
     parser.add_argument("--trace", default=None, help="task trace JSONL produced by the simulation")
     parser.add_argument("--run-dir", default=None,
@@ -184,6 +186,7 @@ def frame_document(
     vessel_position: tuple[float, float],
     observer_position: tuple[float, float],
     interval: float,
+    vessel_name: str = "OBS",
 ) -> dict[str, Any]:
     sky_time = to_skyfield_time(timescale, step["time"])
     ap_map = access_point_map(step)
@@ -241,7 +244,7 @@ def frame_document(
         "t": round(index * interval, 3),
         "time": step["time"],
         "vessel": {
-            "name": "vessel",
+            "name": vessel_name,
             "lat": vessel_lat,
             "lon": vessel_lon,
             "ecef_km": ecef_km(vessel, sky_time),
@@ -344,12 +347,22 @@ def main() -> int:
     if not satellite_cache:
         raise SystemExit("no TLE data found in the configurations")
 
-    vessel_name = data.get("vessel_name", "VESSEL")
-    first_vessel = configurations[start].get("vessel_position") or {}
-    vessel_position = (
-        float(first_vessel.get("lat", 0.0)),
-        float(first_vessel.get("lon", 0.0)),
+    vessel_name = data.get("vessel_name")
+    first_vessel = (
+        configurations[start].get("vessel_position")
+        or data.get("vessel_position")
+        or {}
     )
+    if first_vessel:
+        vessel_position = (
+            float(first_vessel.get("lat", 0.0)),
+            float(first_vessel.get("lon", 0.0)),
+        )
+        vessel_name = vessel_name or "TERMINAL"
+    else:
+        # Terrestrial configurations expose a single observer terminal.
+        vessel_position = observer_position
+        vessel_name = vessel_name or "OBS"
 
     exported = 0
     load_samples: list[dict[str, Any]] = []
@@ -369,6 +382,7 @@ def main() -> int:
             current_vessel,
             observer_position,
             interval,
+            vessel_name,
         )
         with (frames_dir / f"{index:06d}.json").open("w", encoding="utf-8") as handle:
             json.dump(document, handle, separators=(",", ":"))
