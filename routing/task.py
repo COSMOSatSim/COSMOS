@@ -13,8 +13,10 @@ import globals
 import json5, csv
 import os
 from pprint import pprint
+from typing import Any, Optional
 
 from utils import colorize, _win_longpath
+from BaseTerminal import BaseTerminal
 
 config = globals.config
 resolution = globals.resolution_config
@@ -27,23 +29,51 @@ DSR = config["Routing_algorithm"]["DSR"]
 
 class Task:
 
-    def __init__(self, task_id: int, current_node: str, dest_node: str, routingInitTime, task_type, image_size):
+    def __init__(
+        self,
+        task_id: int,
+        current_node: str,
+        destination: BaseTerminal,
+        routingInitTime: float,
+        task_type: str,
+        image_size: float,
+        source: Any = None
+    ) -> None:
+        """
+        Initialize a network Task entity.
+
+        Args:
+            task_id (int): Unique task identifier.
+            current_node (str): Name of the node currently holding or generating the task.
+            destination (BaseTerminal): The destination terminal endpoint (Observer or Vessel).
+            routingInitTime (float): Simulation timestamp when routing started.
+            task_type (str): Type of task (e.g. 'Generic_Service', 'CPU_Intensive', 'Batch').
+            image_size (float): Payload or image size in megabytes (MB).
+            source (str, optional): Name of the originating source node. Defaults to current_node.
+
+        Raises:
+            TypeError: If destination is not an instance of BaseTerminal.
+        """
+        if not isinstance(destination, BaseTerminal):
+            raise TypeError(f"Task destination must be a BaseTerminal instance, got {type(destination).__name__}")
 
         self.id = task_id
         self.ttl = 20  # Time to live in HOP
         self.hop = 0  # num_hop
         self.arrived = False  # Arrived Flag
         self.routingInitTime = routingInitTime  # Tempo di partenza
-        self.routingEndTime = None  # Tempo di fine
+        self.routingEndTime: Optional[float] = None  # Tempo di fine
         self.label = 'ON_SIMULATION'  # Failure Label
 
         self.task_type = task_type  # Es: "CPU_Intensive"
         self.weight = image_size  # Dimensione Immagine (MB)
 
-        self.source = current_node  # Nodo di partenza
+        self.source = source
+        self.source_node: str = source.name if source is not None else current_node
 
         self.current_node = current_node  # Server sul quale si trova
-        self.dest_node = dest_node  # Nodo di destinazione
+        self.destination: BaseTerminal = destination  # Oggetto Terminale di destinazione
+        self.dest_node: str = destination.name  # Nome del nodo di destinazione per lookup compatibili
 
         # self.visited: set[str] = {current_node}# Set Server precedente
         self.visited = set()  # Set Server precedente
@@ -58,6 +88,13 @@ class Task:
         self.routeRequestIst = None  # Timestamp start route Request
         self.RouteReply = False  # Bool allow reply
         self.selected_route = []  # Lista percorso da seguire
+
+        trace = getattr(globals, "task_trace", None)
+        if trace is not None:
+            trace.emit(
+                routingInitTime, "spawn", task_id,
+                node=current_node, type=task_type, size_mb=image_size,
+            )
     
     def __str__(self):
         """
@@ -165,6 +202,16 @@ def generate_Tasks_Status(csv_filename, folder):
             routing_end = None
 
         # Crea una lista con le informazioni principali del task
+        return_dur = (
+            round(t.returnEndTime - t.returnInitTime, 3)
+            if getattr(t, "returnEndTime", None) is not None and getattr(t, "returnInitTime", None) is not None
+            else None
+        )
+        rtt_val = round(getattr(t, "rtt", 0.0), 3) if getattr(t, "rtt", None) is not None else None
+        g_delay = round(getattr(t, "ground_queue_delay", 0.0), 3) if getattr(t, "ground_queue_delay", None) is not None else None
+        c_time = round(getattr(t, "d_cpu", 0.0), 3) if getattr(t, "d_cpu", None) is not None else None
+        weight_val = round(getattr(t, "weight", 0.0), 3)
+
         elem = [
             t.id,  # ID del task
             t.current_node,  # Nodo corrente
@@ -174,7 +221,12 @@ def generate_Tasks_Status(csv_filename, folder):
             round(t.routingInitTime, 2),  # Tempo di inizio routing arrotondato
             routing_end,  # Tempo di fine routing arrotondato (se presente)
             durata,  # Durata del routing (se presente)
-            get_algo_percentages(t)
+            get_algo_percentages(t),
+            weight_val,
+            g_delay,
+            c_time,
+            return_dur,
+            rtt_val
         ]
         # Aggiungi le informazioni del task alla lista totale
         total_tasks.append(elem)
@@ -189,7 +241,7 @@ def generate_Tasks_Status(csv_filename, folder):
     print(
         "id     | CurrentNode          | Hop | Label           | Resolution    | Start Routing (s) | End Routing (s) | duration      | Algo")
     for elem in total_tasks:
-        id_, current_node, hop, label, task_type, routing_start, routing_end, durata, algorithms = elem
+        id_, current_node, hop, label, task_type, routing_start, routing_end, durata, algorithms = elem[:9]
         algorithms_str = ', '.join([f"{k}:{v}%" for k, v in algorithms.items()]) if algorithms else "-"
 
         row = (
@@ -198,12 +250,18 @@ def generate_Tasks_Status(csv_filename, folder):
             f"{str(durata):<13} | {algorithms_str}"
         )
 
-        if label == "TASK_ARRIVED":
+        if label in ("TASK_ARRIVED", "ROUND_TRIP_COMPLETED"):
             row = colorize(row, "green")
             TArr += 1
         elif label == "TTL_EXPIRED":
             row = colorize(row, "red")
             TExp += 1
+        elif label in ("IN_GROUND_QUEUE", "IN_GROUND_COMPUTE", "COMPLETED_ON_OBSERVER"):
+            row = colorize(row, "cyan")
+            ToS += 1
+        elif label == "RETURN_ON_SIMULATION":
+            row = colorize(row, "yellow")
+            ToS += 1
         elif label == "SEN_OUT_OF_BUFF":
             row = colorize(row, "orange")
             Tsob += 1
@@ -217,10 +275,10 @@ def generate_Tasks_Status(csv_filename, folder):
     print()  # Riga vuota alla fine per separare dall'output successivo
 
     # FASE DI SCRITTURA CSV
-        # FASE DI SCRITTURA CSV
     headers = [
         "TaskID", "CurrentNode", "Hop", "Label", "Resolution",
-        "RoutingInitTime", "RoutingEndTime", "Duration", "Algorithms"
+        "RoutingInitTime", "RoutingEndTime", "Duration", "Algorithms",
+        "Weight_MB", "GroundQueueDelay", "ComputeTime", "ReturnDuration", "RTT"
     ]
 
     # Assicura l'esistenza della cartella del CSV (uso path assoluto)

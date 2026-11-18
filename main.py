@@ -77,7 +77,6 @@ if __name__ == "__main__":
     # Esegui la validazione della configurazione di Routing
     RoutingManager.validate_config(config)
 
-    MaxTry = config.get("max_try", 10)
     r_algo = None
     # 1) Costruzione configurazioni
     if config.get("Build_Configurations", False):
@@ -110,7 +109,7 @@ if __name__ == "__main__":
         if r_algo == "BATMAN" or r_algo == "DINAMICO":
             globals.OGMs_tables = load_saved_OGM()  # Carico le OGM Table
         
-        globals.edge_servers, globals.global_access_point = loadConfiguration(env, globals.data_configurations, globals.OGMs_tables)  # Carico la topologia in base alla modalità
+        globals.edge_servers = loadConfiguration(env, globals.data_configurations, globals.OGMs_tables)  # Carico la topologia in base alla modalità
         env.process(periodic_recall_Topology_monitor(env, globals.data_configurations, globals.OGMs_tables))
     else:
         print("Nessuna Configurazione richiesta!"); sys.exit(0)
@@ -163,6 +162,7 @@ if __name__ == "__main__":
                 env.process(ILP_simulation.TaskAssignment_ILP(
                     env,
                     server,
+                    globals.observer,
                     batch_task_id,  # <--- FIX: RIMOSSO str(), ora è INT
                     image_size,
                     env.now,
@@ -180,6 +180,7 @@ if __name__ == "__main__":
                 env.process(simulation.TaskAssignment(
                     env,
                     server,
+                    globals.observer,
                     batch_task_id,  # INT
                     image_size,
                     env.now,
@@ -194,6 +195,7 @@ if __name__ == "__main__":
                 env.process(simulation.enqueue_batch_in_net(
                     env,
                     server,
+                    globals.observer,
                     batch_task_id,  # <--- Già INT
                     image_size,
                     env.now,
@@ -208,7 +210,8 @@ if __name__ == "__main__":
         env,
         globals.initial_server_counter,
         globals.different_server_counter,
-        globals.other_server_counter
+        globals.other_server_counter,
+        globals.observer,
     ))
 
     # 5) Preparazione dei nomi di cartella e file
@@ -282,8 +285,6 @@ if __name__ == "__main__":
     csv_mig = _ensure_parent_dir(csv_mig)
     csv_routing_task = _ensure_parent_dir(csv_routing_task)
 
-    # Salvo il nome del CSV nel config per eventuali moduli esterni
-    config["csv_name"] = {"name": csv_task}
     # Scrivo la config *usata* nella cartella di output della simulazione
     used_config_path = os.path.join(base_dir, "used_config.json5")
     os.makedirs(os.path.dirname(used_config_path), exist_ok=True)
@@ -301,9 +302,6 @@ if __name__ == "__main__":
 
     # 6) Esecuzione simulazione
     env.run(config['simulation_duration'])
-
-    # Definisci il nome del file di output
-    output_folder = "Generated_datasets"
 
     if config.get("save_generated_tasks_dataset", True) and globals.gbl_generated_tasks_data:
         file_name = "generated_tasks_counter.json5"
@@ -340,7 +338,7 @@ if __name__ == "__main__":
 
     # Raccogli tutti i server in un'unica lista per l'iterazione
     all_servers_by_name = {}
-    for s in (globals.edge_servers or []) + (globals.global_access_point or []):
+    for s in (globals.edge_servers or []):
         if s is None:
             continue
         all_servers_by_name[s.name] = s

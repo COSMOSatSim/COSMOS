@@ -13,10 +13,11 @@ class Satellite:
     def __init__(self, satellite : EarthSatellite, distance, tle, is_acc_point):
         self.name = satellite.name
         self.satellite = satellite
-        self.distance = distance            # distance rispetto all'OBSERVER
+        self.distance = distance            # distance rispetto alla posizione 
+        self.elev = 0
         self.tle = tle                      
         self.is_acc_point = is_acc_point
-
+        
         self.neighbors = {}                 # Dizionario dei suoi vicinini
         
         self.OGMs_History = []          # Lista OGM visionati in passato

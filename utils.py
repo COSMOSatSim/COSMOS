@@ -88,3 +88,20 @@ def _win_longpath(p: str) -> str:
     if p.startswith("\\\\"):        # UNC -> \\?\UNC\server\share\...
         return "\\\\?\\UNC" + p[1:]
     return "\\\\?\\" + p
+
+
+def format_mb(mb_value: float) -> str:
+    """
+    Format a size value in Megabytes to a human-readable string (MB or GB).
+
+    Args:
+        mb_value (float): Value in Megabytes (MB).
+
+    Returns:
+        str: Formatted string representation (e.g., '5.25 MB' or '1.20 GB').
+    """
+    if mb_value >= 1024:
+        gb_value = mb_value / 1024
+        return f"{gb_value:.2f} GB"
+    return f"{mb_value:.2f} MB"
+

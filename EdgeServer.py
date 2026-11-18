@@ -1,13 +1,15 @@
 import globals
 from math import sqrt
 import simpy
-from skyfield.api import EarthSatellite
+from skyfield.api import EarthSatellite, Time
+from skyfield.toposlib import GeographicPosition
+
 from collections import OrderedDict
 from routing.task import Task
 from routing.routing_manager import findAlgorithm
 from utils import colorize
 from routing.routing_manager import RoutingManager
-
+from BaseTerminal import BaseTerminal
 
 # Leggi il file di configurazione JSON
 config = globals.config
@@ -135,7 +137,7 @@ class EdgeServer:
         state = {
             "time": env.now,
             "satellite": self.name,
-            "in_listening_dome": self.elev_angle >= 40,
+            "in_listening_dome": self.elev_angle >= config["Phi_max"],
             "elev_angle": self.elev_angle,
             "energy_budget_J": self.energy,
             "energy_reserved_J": self.energy_reserved,
@@ -173,6 +175,12 @@ class EdgeServer:
             (task_id, task_type, arrival_time_system, img_size, rejection_reason, d_cpu )
         )
         print(f"[Task {task_id}] REJECTED on {self.name} due to: {rejection_reason}")
+        trace = getattr(globals, "task_trace", None)
+        if trace is not None:
+            trace.emit(
+                arrival_time_system, "fail", task_id,
+                node=self.name, reason=rejection_reason,
+            )
 
     def task_completed(self, task_id, task_type, arrival_time_system, arrival_time_task_queue,
                        start_time, end_time, execution_time, service_time, time_in_queue,
@@ -196,6 +204,10 @@ class EdgeServer:
              transfer_time, image_size,
              DeadLine, exec_after_set, eps_cpu, eps_net, total_energy, self.energy)
         )
+
+        trace = getattr(globals, "task_trace", None)
+        if trace is not None:
+            trace.emit(end_time, "compute", task_id, node=self.name)
 
         print(f"[Task {task_id}] Task eseguito su {self.name} {self.elev_angle} degrees | "
               f"CPU={eps_cpu:.4f}J, NET={eps_net:.4f}J, TOTAL={total_energy:.4f}J, "
@@ -269,14 +281,15 @@ class EdgeServer:
     def __str__(self):
         return f"Satellite :{self.name}\n\telev:{self.elev_angle}\n\tis_AP:{self.is_acc_point}"
 
-    def getPositionVector(self, t):
+    def getPositionVector(self, t:Time):
         """
-        Questa funzione ritorna un vettore in 3 dimensioni,
-        rappresenta la posizione del satellite in un determinato istante.
+        Returns the 3D position vector of the satellite at a given time.
+        Args: 
+            t (Time): The time at which to get the satellite's position.
+        Returns:
+            list: A 3D vector representing the satellite's position in kilometers.
         """
-
-        from topology.core import getSystemFromSat
-        return getSystemFromSat(self.satellite, t, True).position.km.tolist()
+        return self.satellite.at(t).position.km.tolist()
     # --------------------------------------------------
     # Gestione Energetica
     # --------------------------------------------------
@@ -469,9 +482,10 @@ class EdgeServer:
         """
         Simulates the physical transmission of a task.
         """
+        trace = getattr(globals, "task_trace", None)
         if task.ttl > 0:
             # Gestione dell'attesa nell'env
-            if receiver.name != 'OBS':
+            if not isinstance(receiver, BaseTerminal):
                 bandwidth = globals.rnd.randint(globals.config["available_bandwidth"]["min"], globals.config["available_bandwidth"]["max"])
                 bandwidth = bandwidth * (1024 ** 2) if bandwidth is not None else 0.0
 
@@ -490,6 +504,23 @@ class EdgeServer:
                 trasmission_time = (task.weight/bandwidth) if bandwidth > 0 else float('inf')
                 print(f"[{task.id}][{algorithm}] CONSEGNATO! {self.name} -> {receiver.name} | Tramission-time: {trasmission_time}")
 
+            monitor = getattr(globals, "gui_monitor", None)
+            if monitor is not None:
+                monitor.record_link(
+                    env.now, env.now + trasmission_time,
+                    self.name, receiver.name, task.id, task.weight,
+                    bandwidth / (1024 ** 2), trasmission_time,
+                    "downlink" if isinstance(receiver, BaseTerminal) else "isl",
+                    algorithm,
+                )
+
+            if trace is not None:
+                trace.emit(
+                    env.now, "hop_start", task.id,
+                    **{"from": self.name, "to": receiver.name},
+                    algo=algorithm, duration_s=trasmission_time,
+                )
+
             task.hop += 1
             task.ttl -= 1   
             
@@ -497,14 +528,30 @@ class EdgeServer:
             
             self.tasks.remove(task)             # Rimuoviamo il task dal Sender
             yield env.timeout(trasmission_time)
+
+            if trace is not None:
+                trace.emit(
+                    env.now, "hop_end", task.id,
+                    **{"from": self.name, "to": receiver.name},
+                )
             
             receiver.tasks.append(task)         # Inviamo il task al Receiver
             
             task.current_node = receiver.name   # Modifichiamo le informazioni sul task
 
-            if task.dest_node == receiver.name:
+            if task.destination == receiver or task.dest_node == receiver.name:
                 task.arrived = True
                 task.label = 'TASK_ARRIVED'
+                if trace is not None:
+                    trace.emit(
+                        env.now, "deliver", task.id,
+                        **{"from": self.name, "to": receiver.name},
+                    )
+                    trace.emit(
+                        env.now, "complete", task.id,
+                        node=receiver.name,
+                        rtt_s=env.now - task.routingInitTime,
+                    )
 
             task.visited.add(receiver.name)            # Aggiorno i visitati
 
@@ -512,6 +559,11 @@ class EdgeServer:
             # Rimuoviamo il task
             print(f"[{task.id}] RIMOZIONE TASK DA {self.name}, TTL finito")
             task.label = 'TTL_EXPIRED'
+            if trace is not None:
+                trace.emit(
+                    env.now, "fail", task.id,
+                    node=self.name, reason="TTL_EXPIRED",
+                )
             self.dead_tasks.append(task)
             self.tasks.remove(task)
 
@@ -538,7 +590,9 @@ class EdgeServer:
         R_predicted = Wc + d_cpu + Wn + d_net
 
         # 2) stima energia CPU (richiede C_sen)
-        C_sen = getattr(self, 'C_sen', globals.rnd.uniform(self.C_sen_min, self.C_sen_max))
+        C_sen = getattr(self, 'C_sen', None)
+        if C_sen is None:
+            C_sen = globals.rnd.uniform(self.C_sen_min, self.C_sen_max)
 
 
         eps_cpu = self.compute_execution_energy(d_cpu, C_sen, e=config.get("energy_coefficient", 5e-26))

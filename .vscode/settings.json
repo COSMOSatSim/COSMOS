@@ -1,4 +1,5 @@
 {
     "python.defaultInterpreterPath": "/home/vinz/.venv/SECMotionModel_env/bin/python",
-    "python.terminal.activateEnvInSelectedTerminal": true
+    "python.terminal.activateEnvInSelectedTerminal": true,
+    "cmake.sourceDirectory": "/home/vinz/SEC/SECMotionModel/gui"
 }

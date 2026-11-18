@@ -17,6 +17,7 @@ This module provides:
    - `format_mb`: formats memory values (MB/GB) for display purposes.
 """
 
+import abc
 import globals
 from collections import OrderedDict
 from skyfield.api import wgs84
@@ -24,23 +25,14 @@ from skyfield.toposlib import GeographicPosition
 import sys
 import json5
 
+from BaseTerminal import BaseTerminal
+from utils import format_mb
+
 config = globals.config
 
-def format_mb(mb_value):
+class ObserverMeta(abc.ABCMeta):
     """
-    Formats the MB value to a clean string.
-    :param mb_value: Value in Megabytes (MB).
-    :return: Formatted string (e.g., "5.25 MB").
-    """
-    if mb_value >= 1024:
-        # Se è troppo grande, converti in GB per pulizia, altrimenti mantieni MB.
-        gb_value = mb_value / 1024
-        return f"{gb_value:.2f} GB"
-    return f"{mb_value:.2f} MB"
-
-class ObserverMeta(type):
-    """
-    Singleton instance of an Observer
+    Singleton instance of an Observer. Inherits from abc.ABCMeta for BaseTerminal compatibility.
     """
     _instances = {}
 
@@ -52,15 +44,13 @@ class ObserverMeta(type):
         return cls._instances[cls]
     
 
-class Observer_Temp:
+class Observer_Temp(BaseTerminal):
     """
     OGGETTO TEMPORANEO.
     Rappresenta l'osservatore nella simulazione, o meglio, colui che genera i task e riceve i risultati.
     """
     def __init__(self, loc_name: str, position: GeographicPosition):
-        
-        self.position = position    # Posizione dell'observers
-        self.name = 'OBS'           
+        super().__init__(name='OBS', position=position, env=None)
         self.location_name =  loc_name
 
     def __str__(self):
@@ -68,17 +58,10 @@ class Observer_Temp:
 
 
 
-class Observer(metaclass = ObserverMeta):
+class Observer(BaseTerminal, metaclass=ObserverMeta):
     def __init__(self, env, pos):
+        super().__init__(name='OBS', position=pos, env=env)
         
-        self.env = env
-        self.position = pos     # Posizione dell'observers
-
-        self.name = 'OBS' 
-        self.is_acc_point = False
-        
-        self.tasks = []
-        self.arrived_tasks = []
         self.OGMs_position = {}
         self.ogm_sequence = 0               # Contatore OGM emessi
         self.OGMs = []                      # OGM to process
@@ -108,24 +91,4 @@ class Observer(metaclass = ObserverMeta):
         :return: list of [x, y, z] in km
         """
         return self.getLocation(altitude = 0).at(t).position.km.tolist()
-    
 
-    def print_task_summary(self):
-        """
-        Stamp a summary table of tasks arrived at the observer.
-        """
-        print(f"TASK ARRIVATI CON SUCCESSO ALL'OBS: {len(self.tasks)}:\n")
-        print(" id     | weight        | resolution    | Start Routing (s) | End Routing (s) | duration      | hop |")
-        for task in self.tasks:
-
-            initTime = round(task.routingInitTime, 2)
-            if task.routingEndTime is None:
-                endTime = "N/A"
-                duration = "N/A"
-            else:
-                endTime = round(task.routingEndTime, 2)
-                duration = round(task.routingEndTime - task.routingInitTime, 2)
-
-            print(
-                f" {task.id:<6} | {format_mb(task.weight):<13} | {task.task_type:<23} | {initTime:<17} | {endTime:<15} | {duration:<13} | {task.hop:<3} |")
-        print()  # Riga vuota alla fine per separare dall'output successivo

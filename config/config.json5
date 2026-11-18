@@ -3,6 +3,7 @@
     enable_queue_monitoring: true,
     cpu_capacity_queue: 5,
     net_capacity_queue: 5,
+    ground_cpu_capacity: 10,
     save_generated_tasks_dataset: true,
     adding_time: 30,
     seed: 9973,
@@ -39,10 +40,8 @@
     request_distribution: {
         distribution: "OrbitAware",
     },
-    DTS: true,
     AP_selection: "optimal",
     SearchNode: "ERT",
-    SEN_selection: "maxSunset",
     required_ram: {
         min: 50,
         max: 500,
@@ -51,19 +50,12 @@
         min: 50,
         max: 1000,
     },
-    Volume_size: {
-        min: 500,
-        max: 1000,
-    },
     available_bandwidth: {
         min: 2150,
         max: 3125,
     },
     generate_tasks: {
         distribution: "exponential",
-    },
-    csv_name: {
-        name: "C:\\Users\\danil\\PycharmProjects\\SECMotionModel\\result\\OrbitAware_sim_SystemAP5\\deadline_10\\Energy_budget_100000\\IMG_RES_bg_0.4_bcpui_0.35_bcpudi_0.25_am_0.3ah_0.5_avh_0.2_gh_0.7_gvh_0.3\\Routing_bidirectional_True\\seed_9973\\r_algo_GREEDY\\results_exponential_REQ-OrbitAware_AT_0.5_CPU_0.05.csv",
     },
     simulation_location: "Roma",
     locations: {
@@ -78,7 +70,6 @@
             alt: 0,
         },
     },
-    LEO_orbit: 300,
     Phi_max: 40,
     Phi_buffer: 15,
     Laser_Communication_Range: 659,
@@ -86,7 +77,6 @@
     redistribuite_OGM: false,
     Load_Configuration: true,
     Interval_between_Configurations_in_seconds: 2,
-    Number_of_Configurations: 45,
     Interval_future_event_prediction: 15,
     Interval_past_event_prediction: 10,
     OGMs_redistribution: 1,
@@ -102,10 +92,6 @@
     ilp_weights: {
         w_e: 0.3,
         w_R: 0.7,
-    },
-    ilp_alpha: {
-        alpha_cpu: 1.0,
-        alpha_net_J_per_MB: 0.000465,
     },
     ilp_objective: "weighted",
     lexi_primary: "energy",

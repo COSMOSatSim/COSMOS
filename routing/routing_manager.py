@@ -7,6 +7,7 @@ from typing import Any, List, Dict, Tuple, Optional
 from routing.task import Task
 from utils import colorize
 from routing.packet import Mode, Packet
+from BaseTerminal import BaseTerminal
 
 
 # ---------------------------------------------------------
@@ -80,13 +81,13 @@ class GreedyStrategy(RoutingStrategy):
         Returns:
             Any: Generatore SimPy per l'attesa della trasmissione.
         """
-        dest_pos = globals.observer.getPositionVector(globals.ist_in_conf)
+        dest_pos = task.destination.getPositionVector(globals.ist_in_conf)
         ranker_neighbors = []
+        dest_aps = task.destination.get_access_points()
 
         for server in manager.node.neighbors:
             neighbor_distance = RoutingManager.get_pos_proximity(dest_pos, server.getPositionVector(globals.ist_in_conf))
-            t = (server, neighbor_distance, server.is_acc_point)
-            ranker_neighbors.append(t)
+            ranker_neighbors.append((server, neighbor_distance, server in dest_aps))
 
         ranker_neighbors.sort(key=lambda x: (not x[2], x[1]))
 
@@ -160,12 +161,12 @@ class DsrStrategy(RoutingStrategy):
                 - neighbors_list (List[Any]): A list of neighbor node objects.
                 - neighbor_map (Dict[str, Any]): A dictionary mapping neighbor names to their objects.
         """
-        if node.name != 'OBS':
+        if not isinstance(node, BaseTerminal):
             neighbors_list = list(node.neighbors.keys())
-            if node.is_acc_point:
+            if globals.observer and node in globals.observer.get_access_points():
                 neighbors_list += [globals.observer]
         else:
-            neighbors_list = globals.global_access_point
+            neighbors_list = node.get_access_points()
 
         neighbor_map = {n.name: n for n in neighbors_list}
         return neighbors_list, neighbor_map
@@ -261,7 +262,7 @@ class DsrStrategy(RoutingStrategy):
                         else:
                             timeout += 1
 
-                elif node.name == task.dest_node:
+                elif node == task.destination or node.name == task.dest_node:
                     node.arrived_tasks.append(task)
                     node.tasks.remove(task) 
                     task.routingEndTime = env.now
@@ -420,27 +421,29 @@ class RoutingManager:
         Returns:
             Any: Generatore SimPy.
         """
-        if len(self.node.neighbors) == 0 or not self.strategy:
+        if not self.strategy:
             return
 
         for task in tasks:
             if not task.arrived:
-                # Gestione AP Bidirezionale / Monodirezionale
+                # Gestione AP Bidirezionale / Monodirezionale per la destinazione del task
+                dest_aps = task.destination.get_access_points()
                 if globals.config["AP_routing_bidirectional"]:
-                    if self.node.is_acc_point:
-                        yield from self.deliver_to_Observer(env, 'BIDIRECTIONAL', task)
+                    if self.node in dest_aps:
+                        yield from self.deliver_to_terminal(env, 'BIDIRECTIONAL', task)
                         continue
                 else:
-                    if self.node.elev_angle >= 40:
-                        yield from self.deliver_to_Observer(env, 'MONODIRECTIONAL', task)
+                    if self.node in dest_aps and self.node.elev_angle >= globals.config["Phi_max"]:
+                        yield from self.deliver_to_terminal(env, 'MONODIRECTIONAL', task)
                         continue
 
-                # Esecuzione dell'algoritmo tramite la strategia scelta
-                yield from self.strategy.route(env, self, task)
+                # Esecuzione dell'algoritmo tramite la strategia scelta (richiede vicini inter-satellite)
+                if len(self.node.neighbors) > 0:
+                    yield from self.strategy.route(env, self, task)
                 
-    def deliver_to_Observer(self, env: Any, mode: str, task: Task) -> Any:
+    def deliver_to_terminal(self, env: Any, mode: str, task: Task) -> Any:
         """
-        Consegna il task direttamente all'Observer (poiché il nodo è un Access Point).
+        Consegna il task direttamente al terminale di destinazione (poiché il nodo è un Access Point).
         
         Args:
             env (Any): L'ambiente SimPy.
@@ -452,7 +455,33 @@ class RoutingManager:
         """
         task.routingEndTime = env.now
         algo = findAlgorithm()
-        yield from self.node.transmit_task(env, task, globals.observer, algo)
+        yield from self.node.transmit_task(env, task, task.destination, algo)
+
+        # Se il task e' un risultato di ritorno che atterra sulla nave, registra l'RTT
+        if getattr(task, "is_return", False):
+            task.returnEndTime = env.now
+            task.return_hop = task.hop
+            task.rtt = task.returnEndTime - task.routingInitTime
+            task.label = "ROUND_TRIP_COMPLETED"
+            task.status = "ROUND_TRIP_COMPLETED"
+            forward_dur = task.ground_arrival_time - task.routingInitTime if getattr(task, "ground_arrival_time", None) is not None else 0.0
+            return_dur = task.returnEndTime - task.returnInitTime if getattr(task, "returnInitTime", None) is not None else 0.0
+            print(
+                colorize(
+                    f"[*ROUND-TRIP COMPLETED*] Task {task.id} consegnato alla nave {task.destination.name}! "
+                    f"RTT={task.rtt:.3f}s (Andata={forward_dur:.3f}s, "
+                    f"CPU={task.d_cpu:.2f}s, Ritorno={return_dur:.3f}s, "
+                    f"Hop A/R={getattr(task, 'forward_hop', 0)}+{task.return_hop})",
+                    "green",
+                )
+            )
+
+        if getattr(task.destination, "cpu_dev", None) is not None:
+            from NavalOrbit.naval_relay_simulation import TaskAssignment_Observer
+            env.process(TaskAssignment_Observer(env, task.destination, task))
+
+    # Alias per retrocompatibilità
+    deliver_to_Observer = deliver_to_terminal
 
     @staticmethod
     def get_pos_proximity(pos1: List[float], pos2: List[float]) -> float:

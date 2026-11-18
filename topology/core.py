@@ -53,8 +53,17 @@ def get_active_satellites():
         return None
 
 
-def saveTLEOnFile() -> tle_data:
-    _dir, filename ="./data", "tle_data.txt"
+def saveTLEOnFile(_dir:str = "./data") -> tle_data:
+    """
+    This function attempts to download TLE data from CelesTrak. 
+    If successful, it saves the data to a local file.
+    
+    Args: 
+        _dir (str): Directory where the TLE data will be saved. Defaults to './data'.
+    Returns:
+        tle_data (list): List of TLE data lines if successful, None otherwise.
+    """
+    filename ="tle_data.txt"
     file_path = f"{_dir}/{filename}"
     
     # 1. Attempt to download
@@ -96,9 +105,15 @@ def saveTLEOnFile() -> tle_data:
             sys.exit(colorize(error_msg, "red"))
 
 
-def openTLEFromFile(file_path: str = "./data/tle_data.txt") -> tle_data:
+def openTLEFromFile(file_path: str = "./data/tle_data.txt", _dir: str = None) -> tle_data:
+    if _dir is not None:
+        file_path = f"{_dir}/tle_data.txt"
     if not os.path.exists(file_path):
-        sys.exit(colorize(f"Errore: Il file '{file_path}' non esiste. Assicurati di aver eseguito 'saveTLEOnFile()' prima.","red"))
+        # Fallback to standard ./data/tle_data.txt if custom dir file does not exist
+        if os.path.exists("./data/tle_data.txt"):
+            file_path = "./data/tle_data.txt"
+        else:
+            sys.exit(colorize(f"Errore: Il file '{file_path}' non esiste. Assicurati di aver eseguito 'saveTLEOnFile()' prima.","red"))
     
     try:
         with open(file_path, "r") as file:
@@ -159,7 +174,7 @@ def getObserverObj(location=config["simulation_location"]):
 
 
 # Getter reference system from a Satellite
-def getSystemFromSat(satellite, time, Geocentric=False):
+def getSystemFromSat(time:Time, satellite:EarthSatellite, ground_reference_point:GeographicPosition = None, Geocentric=False):
     """
     Get the reference system from a satellite.
 
@@ -170,12 +185,18 @@ def getSystemFromSat(satellite, time, Geocentric=False):
         time (Time): The time at which to get the satellite's position.
     Returns:
         Geocentric or Topocentric: The reference system of the satellite at the given time.
-    """
+    """    
+    if not Geocentric:
+        if ground_reference_point is None:
+            raise ValueError("ground_reference_point must be provided when Geocentric is False.")
+        if not isinstance(ground_reference_point, GeographicPosition):
+            raise TypeError(f"ground_reference_point must be an instance of GeographicPosition, got {type(ground_reference_point).__name__} instead.")
+    
     if Geocentric:  # Satellite Position from the Center of Earth
         return satellite.at(time)  # return geocentric system
     else:  # Satellite Position from the Observer Position
         difference = (
-            satellite - getObserverObj()
+            satellite - ground_reference_point
         )  # Calculate the difference between the satellite's position and the observer's position to get the topocentric reference system
         return difference.at(time)  # return topocentric system
 
@@ -196,7 +217,7 @@ def get_pos_proximity(pos1, pos2):
     return sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2)
 
 
-def get_orbit_proximity(sat1, sat2, t):
+def get_orbit_proximity(sat1:EarthSatellite, sat2:EarthSatellite, t):
     """
     Calculates the distance between two satellites in kilometers.
 
@@ -208,8 +229,8 @@ def get_orbit_proximity(sat1, sat2, t):
     Returns: The distance between the two satellites in kilometers.
     """
     # Get geocentric positions in km
-    pos_sat1 = getSystemFromSat(sat1, t, True).position.km
-    pos_sat2 = getSystemFromSat(sat2, t, True).position.km
+    pos_sat1 = getSystemFromSat(t, sat1, Geocentric=True).position.km
+    pos_sat2 = getSystemFromSat(t, sat2, Geocentric=True).position.km
 
     # Extraction of coordinate components
     x1, y1, z1 = pos_sat1
@@ -248,13 +269,16 @@ def getLatency(distance: float):
 # ---------------------------------------------------------------------------- #
 
 
-def filterSatellitesInView(satellite, t):
+def filterSatellitesInView(ground_reference_point:GeographicPosition,satellite:EarthSatellite, t:Time):
     """
-    Input: Satellites
+    Args:
+        ground_reference_point (GeographicPosition): The reference of a specific position on Earth.
+        satellite (EarthSatellite): The satellite object to check.
+        t (Time): The time at which to check the satellite's position.
     Output: Boolean value | True : sat is coming in our direction
                           | False : sat is not coming in our direction
     """
-    sys = getSystemFromSat(satellite, t)
+    sys = getSystemFromSat(t, satellite, ground_reference_point)  # reference system
 
     velocity = sys.velocity
 
@@ -297,7 +321,7 @@ def getAllSatOnMe(
         satellite = EarthSatellite(
             line1, line2, name, ts
         )  # Converting tle Data in SGP4 Satellite Object
-        syst = getSystemFromSat(satellite, t)  # reference system
+        syst = getSystemFromSat(t, satellite, ground_reference_point=getObserverObj() ,Geocentric=False)  # reference system
 
         alt, az, distance = (
             syst.altaz()
@@ -338,7 +362,9 @@ def getAllSatOnMe(
             can_take = counter < Num_Access_point
         elif ap_mode == AccPointMode.OPTIMAL:
             can_take = counter < Num_Access_point and filterSatellitesInView(
-                sat.satellite, t
+                getObserverObj(),
+                sat.satellite, 
+                t
             )
 
         if can_take:
@@ -380,10 +406,10 @@ def compute_distances_from_target_satellite(sat, closerSatellite_Sorted, t):
     return sat_vector_Topology_sorted
 
 
-def find_angle(t, satellite):
+def find_angle(t:Time, satellite:EarthSatellite, ground_reference_point:GeographicPosition):
     """
     Find the elevation angle of a satellite relative to the observer at a given time.
-
+    respect to a specific position.
     Args:
         t (skyfield.timelib.Time): The time at which to find the elevation angle.
         satellite (EarthSatellite): The satellite object.
@@ -391,7 +417,7 @@ def find_angle(t, satellite):
     Returns:
         float: The elevation angle in degrees.
     """
-    sys = getSystemFromSat(satellite, t)
+    sys = getSystemFromSat(t, satellite, ground_reference_point, Geocentric=False)
     alt, az, distance = sys.altaz()
     return alt.degrees
 
@@ -415,7 +441,7 @@ def create_satellite_Identity_card(
     elevation_angle = None
     if not line_setup:
         elevation_angle = find_angle(
-            t, satellite.satellite
+            t, satellite.satellite, getObserverObj()
         )  # Mi trovo l'angolo di elevazione del satellite rispetto l'obverver
 
     satellite_data = {
@@ -439,17 +465,22 @@ def create_satellite_Identity_card(
     return satellite_data
 
 
-def find_satellite_events(satellite, t0):
+def find_satellite_events(satellite, t0, ground_reference_point=getObserverObj()):
     """
     Finds the events for a satellite between two times.
     Args:
         satellite (EarthSatellite): The satellite for which to find events.
         t0 (datetime): Reference time of start.
-        t1 (datetime): The end time for finding events.
 
     Returns:
         dict : info about life of the satellite
     """
+    
+    if not isinstance(satellite, EarthSatellite):
+        raise TypeError(
+            f"Expected an EarthSatellite object, got {type(satellite).__name__} instead."
+        )
+        
     t_end = ts.utc(
         t0.utc_datetime()
         + timedelta(minutes=config["Interval_future_event_prediction"])
@@ -461,26 +492,25 @@ def find_satellite_events(satellite, t0):
     life = {}
 
     time, events = satellite.find_events(
-        getObserverObj(), t_start, t_end, altitude_degrees=config["Phi_max"]
+        ground_reference_point, t_start, t_end, altitude_degrees=config["Phi_max"]
     )  # Find events for the satellite
-
-    if len(time) == 0:
+    
+    if len(time) < 3:
         life = {
-            "AOS": None,
-            "Max-El": None,
-            "LOS": None,
+            "AOS": time[0].utc_strftime() if len(time) > 0 else None,
+            "Max-El": time[1].utc_strftime() if len(time) > 1 else None,
+            "LOS": time[2].utc_strftime() if len(time) > 2 else None,
             "life_seconds": None,
             "time_until_set_seconds": None,
         }
     else:
-
         if (
             not time[0] < t0 < time[2]
         ):  # If the satellite is not in the dome then its life is not defined
             time_until_set = 0
         else:  # The satellite is in the dome
-
             time_until_set = timedelta(seconds=(time[2] - t0) * 86400).seconds
+
         life = {
             "AOS": time[0].utc_strftime(),  # Acquisition of the Satellite (AOS)
             "Max-El": time[1].utc_strftime(),  # Maximum Elevation            (Max-El)
@@ -581,12 +611,15 @@ def genConfigs_dome(
         
 
         configuration = []
+        obs_aps = []
         
         dome, sat_sort_buff = getAllSatOnMe(t, tle_data, mode)
         topology = dome + sat_sort_buff
 
         # Gestione della serializzabilità
         for current_server in topology:
+            if current_server.is_acc_point:
+                obs_aps.append(current_server.name)
 
             neighbors = compute_distances_from_target_satellite(
                 current_server, topology, t
@@ -608,8 +641,13 @@ def genConfigs_dome(
 
             configuration.append(info_sat)  # Save this satellite's configuration
 
+        obs_name = getObserverObj().name if hasattr(getObserverObj(), "name") else "OBS"
         data = {
             "time": t.utc_datetime().isoformat(),  # Current time in ISO format
+            "step_index": step_index,
+            "access_points": {
+                obs_name: obs_aps,
+            },
             "configuration": configuration,  # List of satellite configurations
         }
         configs.append(data)  # Append the configuration to the list
@@ -738,13 +776,12 @@ def periodic_recall_Topology_monitor(env, data_configurations, OGMs_tables):
         )
         print("MODIFICA CONFIGURAZIONE IN CORSO...\n")
 
-        new_edge_servers, new_global_access_point = loadConfiguration(
+        new_edge_servers = loadConfiguration(
             env, data_configurations, OGMs_tables
         )
 
         # ! Aggiorno le Globali
         # ! Sincronizzato intrinsecamente da SimPy
-        globals.global_access_point = new_global_access_point
         globals.edge_servers = new_edge_servers
 
         globals.config_index += 1
@@ -889,10 +926,8 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
         OGMs_tables: Il dizionario contenente le tabelle OGM per ogni configurazione.
         simple: Flag per indicare se caricare la configurazione in modalità semplice.
     Returns:
-        None
+        List[EdgeServer]: Lista aggiornata di EdgeServer della topologia.
     """
-
-    global_access_point = []  # futuri acc_points
 
     if globals.config_index > 0:
         configuration = data_configurations["configurations"][globals.config_index]
@@ -952,17 +987,17 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
             old_edge_servers.values()
         )
 
-        # Trovo i nuovi acc_points
-        counter_acc_found = 0
-        for server in new_edge_servers:
-            if counter_acc_found < config["access_point"]:
-                if server.is_acc_point:
-                    global_access_point.append(server)
-                    counter_acc_found += 1
-            else:
-                break
+        server_dict = {server.name: server for server in new_edge_servers}
+        globals.access_points = {
+            term: [server_dict[name] for name in sats if name in server_dict]
+            for term, sats in configuration.get("access_points", {}).items()
+        }
+        if not globals.access_points and "access_points" not in configuration:
+            legacy_aps = [s for s in new_edge_servers if s.is_acc_point][:config["access_point"]]
+            obs_name = globals.observer.name if globals.observer else "OBS"
+            globals.access_points = {obs_name: legacy_aps}
 
-        return new_edge_servers, global_access_point
+        return new_edge_servers
     else:
         print(f"SIMULAZIONE INIZIATA conf {globals.config_index}")
         # Caricamento iniziale della configurazione
@@ -996,23 +1031,20 @@ def loadConfiguration(env, data_configurations, OGMs_tables):
                         config["available_bandwidth"]["max"],
                     ),
                 )
-        # Trovo i nuovi acc_points
-        counter_acc_found = 0
-        for server in edge_servers:
-            if counter_acc_found < config["access_point"]:
-                if server.is_acc_point:
-                    global_access_point.append(server)
-                    counter_acc_found += 1
-            else:
-                break
 
-        # print("TOPOLOGIA ATTUALE:")
-        # [print(sat.name) for sat in edge_servers]
+        globals.access_points = {
+            term: [server_dict[name] for name in sats if name in server_dict]
+            for term, sats in configuration.get("access_points", {}).items()
+        }
+        if not globals.access_points and "access_points" not in configuration:
+            legacy_aps = [s for s in edge_servers if s.is_acc_point][:config["access_point"]]
+            obs_name = globals.observer.name if globals.observer else "OBS"
+            globals.access_points = {obs_name: legacy_aps}
 
         # globals.config_index += 1
         globals.ist_in_conf = string_to_skyfield_time(configuration["time"])
         globals.edge_servers_topology = edge_servers
-        return edge_servers, global_access_point
+        return edge_servers
 
 
 def string_to_skyfield_time(time_str):

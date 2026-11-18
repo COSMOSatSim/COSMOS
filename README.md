@@ -4,90 +4,265 @@
   <img src="data/assets/Simulation.gif" alt="Simulation Demo" width="750" />
 </p>
 
-SECMotionModel is a discrete-event simulation (DES) platform built on Python and [SimPy](https://simpy.readthedocs.io/), designed to model and analyze **Satellite Edge Computing (SEC)** in Low Earth Orbit (LEO) constellations. This project was developed to evaluate how satellite movement impacts coverage, latency, energy consumption, and task offloading efficiency.
+SECMotionModel is a discrete-event simulation (DES) platform built on Python and [SimPy](https://simpy.readthedocs.io/), designed to model and analyze **Satellite Edge Computing (SEC)** in Low Earth Orbit (LEO) constellations. The simulator uses real **TLE/SGP4** orbital data (Skyfield) from the Starlink constellation to evaluate coverage, latency, energy consumption, and task offloading.
+
+The project includes two simulation domains:
+
+- **Terrestrial**: a fixed ground `Observer` offloads tasks to the satellite constellation.
+- **Naval**: a mobile `Vessel` uses the constellation either as an edge-computing platform (`IN_NETWORK`) or as a transatlantic relay towards a ground station (`TO_OBSERVER`).
+
+---
 
 ## 🚀 Overview
 
-As LEO satellite constellations (like Starlink) grow, the possibility of using satellites as "Edge Computing" nodes becomes viable. This project simulates the interaction between stationary ground users (Observers) and a dynamic constellation of satellites that provide both connectivity and computational resources.
+As LEO constellations grow, satellites can act as edge-computing nodes as well as connectivity providers. SECMotionModel models:
+
+- satellite motion and visibility domes (`Phi_max` elevation mask);
+- inter-satellite laser links (ISL) and ground uplink/downlink;
+- CPU/network queues, energy budgets, deadlines and task rejection;
+- routing algorithms (BATMAN, GREEDY, BATMAN+GREEDY, DSR);
+- server selection with heuristics (`ERT`/OrbitAware) or ILP optimization.
+
+Two naval use cases are available:
+
+| Use case | Description |
+|---|---|
+| `IN_NETWORK` | Tasks are computed on the selected satellite and the result returns to the vessel. |
+| `TO_OBSERVER` | Tasks are relayed across the ISL corridor to Rome, computed on a 10-core ground pool, and the result travels back to the vessel. |
 
 ---
 
 ## 🛠 Project Structure
 
-The project follows a clean, modular architecture:
-
-- **`main.py`**: The primary entry point for a single simulation run. It initializes the SimPy environment and starts the simulation processes.
-- **`launcher.py`**: Orchestrates batch simulation runs using multiprocessing locally.
-- **`setup_simulator.py`**: Automated wrapper script for generating orbital mechanics data during the first execution.
-- **`config/`**: Directory containing JSON5 configuration files for simulation logic and task generation.
-- **`topology/`**: Package managing the dynamic network topology (`core.py`) and orbital mechanics using the Skyfield library (`Satellite.py`).
-- **`routing/`**: Package containing the routing engine (`routing_manager.py`), tasks (`task.py`), and graph management (`ogm_manager.py`).
-- **`slurm_jobs/`**: Package containing Slurm Array bash scripts and Python config generators for massive parallel execution on cluster nodes.
-- **`EdgeServer.py`**: Contains the logic for satellites acting as computational nodes, including resource management (CPU, Network, RAM, Disk).
-- **`Observer.py`**: Represents the ground entities (users) that generate and offload tasks to the satellite network.
-- **`globals.py`**: Centralized state management.
+- **`main.py`**: entry point for the terrestrial single simulation run.
+- **`naval_main.py`**: entry point for naval topology generation and the two naval use cases.
+- **`launcher.py`**: local batch launcher (multiprocessing) for generated configuration sets.
+- **`setup_simulator.py`**: first-run wrapper that materializes the terrestrial orbital configurations.
+- **`config/`**: JSON5 configuration files (`config.json5`, `img_resolution.json5`).
+- **`topology/`**: orbital mechanics and dynamic topology (`core.py`, `Satellite.py`).
+- **`routing/`**: routing engine, strategies, tasks, packets and OGM tables.
+- **`NavalOrbit/`**: vessel generation, naval corridor topology, relay pipeline and orbital experiments.
+- **`slurm_jobs/`**: Slurm array scripts and configuration-set generator for HPC runs.
+- **`Plotters/`**: result analysis, dome plots and naval configuration animations.
+- **`Test/`**: design notes only; the automated test suite has been removed and will be redesigned.
+- **`data/`**: materialized configurations and TLE data (not versioned, regenerated locally).
+- **`result/`**: simulation outputs (not versioned).
+- **`relazione_latex/`**: technical report on the naval extension (not versioned).
+- **`EdgeServer.py`**: satellite edge server (CPU/NET resources, energy, queues).
+- **`Observer.py`** / **`NavalOrbit/Vessel.py`**: terminal endpoints.
+- **`BaseTerminal.py`**: common polymorphic interface for ground and maritime terminals.
+- **`simulation.py`**: task lifecycle, ERT/OrbitAware server selection and queues.
+- **`ILP_simulation.py`** / **`sec_ilp_snapshot_v3.py`**: ILP-based task assignment and snapshot solver.
+- **`globals.py`** / **`enums.py`**: global state, seed and shared enumerations.
 
 ---
 
 ## 📥 Requirements
 
-Ensure you have Python 3.8+ installed. You can install the required dependencies using:
+Python **3.11+** is required (the code uses `enum.StrEnum`). Install the core dependencies:
 
 ```bash
-pip install simpy skyfield json5 numpy pandas tqdm matplotlib
+pip install simpy skyfield json5 numpy tqdm matplotlib pulp requests
 ```
-*(Tip: We recommend using an isolated virtual environment or `uv`).*
+
+Optional dependencies for the analysis plotters:
+
+```bash
+pip install pandas seaborn
+```
+
+> ILP experiments additionally require a PuLP-compatible solver. CBC is used by default; Gurobi/HiGHS are supported when installed.
 
 ---
 
 ## 🏃 First-Time Setup
 
-Computing LEO orbital mechanics for every millisecond of a simulation is computationally expensive. Therefore, the simulator uses a **Data Materialization** approach: it pre-calculates the satellite topology and saves it to JSON files.
+Computing LEO orbital mechanics for every simulation step is expensive. The simulator therefore pre-calculates the satellite topology and saves it to JSON files.
 
-**Before running the simulation for the first time, you must build these matrices.**
-We have provided an automated script for this:
+### Terrestrial configurations
 
 ```bash
 python setup_simulator.py
 ```
-*What it does: This script will temporarily set `Build_Configurations: True` in your `config.json5`, run the `main.py` generation routine, and automatically set it back to `Load_Configuration: True` when finished. You only need to run this once!*
+
+The script temporarily enables `Build_Configurations`, generates `data/configurations_AP_base.json` and `data/configurations_AP_optimal.json` (165 steps at 2 s), then restores `Load_Configuration: true`.
+
+### Naval configurations
+
+Naval configurations are generated by `naval_main.py` on its first run (150 steps at 2 s):
+
+```bash
+python naval_main.py --use-case IN_NETWORK
+```
+
+Use `--load-only` on subsequent runs to skip generation.
 
 ---
 
 ## 🎮 Running the Simulation
 
-Once the setup is complete, you have three ways to run the simulator:
+### 1. Terrestrial single run (local)
 
-### 1. Single Run (Local)
-To execute a single simulation using the parameters defined in `config/config.json5`:
 ```bash
 python main.py
 ```
 
-### 2. Batch Run (Local Multiprocessing)
-To run multiple simulations in parallel locally (sweeping across parameters):
+Uses `config/config.json5` and the saved terrestrial configurations.
+
+### 2. Terrestrial batch run (local multiprocessing)
+
 ```bash
-python launcher.py
+python launcher.py --filter OrbitAware
 ```
 
-### 3. Array Run (Slurm Cluster)
-If you are running on an HPC cluster managed by Slurm, use the highly optimized native Slurm Arrays:
-1. Generate the configuration sets:
-   ```bash
-   python slurm_jobs/configsGenerator.py
-   ```
-2. Submit the chunked array job to the cluster (Work only in the cluster):
-   ```bash
-   sbatch slurm_jobs/submit_array.sh
-   ```
+The launcher reads the `.json5` files from `SIMS_SETS/`, generated by:
+
+```bash
+python slurm_jobs/configsGenerator.py
+```
+
+### 3. Slurm array run (HPC)
+
+```bash
+python slurm_jobs/configsGenerator.py
+sbatch slurm_jobs/submit_array.sh
+```
+
+### 4. Naval simulation
+
+```bash
+# Use Case 1: edge computing on the satellite constellation
+python naval_main.py --load-only --run-sim --use-case IN_NETWORK
+
+# Use Case 2: relay to Rome, ground computing, return to the vessel
+python naval_main.py --load-only --run-sim --use-case TO_OBSERVER
+```
+
+Results are written under `result/naval/<USE_CASE>/<AP_MODE>/`.
+
+### 5. Plotters
+
+```bash
+# Naval configuration animation
+python Plotters/naval_config_plotter.py --config-file data/naval_configurations_AP_optimal.json
+
+# Comparative analysis of merged CSV results
+python Plotters/plot_analysis_v2.py
+
+# Figures used by the naval LaTeX report
+python Plotters/naval_report_plots.py
+
+# Dome/network snapshots
+python Plotters/dome_plotter.py
+```
+
+---
+
+## 🖥 Interactive GUI (v0.2)
+
+The native C++20/WebGPU visualizer lives in
+[SECMotionModel-GUI](https://github.com/HashtagViinz/SECMotionModel-GUI) and is
+included as the `gui/` submodule. It renders satellite motion, ISL links,
+visibility domes and, from v0.2, the real per-satellite load and the forwards
+recorded during a simulation run.
+
+The GUI is optional: the simulator does not import it, and no GUI data is
+written unless `--gui-export` is passed explicitly.
+
+```bash
+# 1. opt-in export during a naval run (off by default)
+python3 naval_main.py --load-only --run-sim --gui-export --use-case IN_NETWORK
+
+# optional: native task trace for the task-pulse layer
+python3 naval_main.py --load-only --run-sim --gui-export \
+  --trace-jsonl result/naval/IN_NETWORK/optimal/tasks.jsonl \
+  --use-case IN_NETWORK
+
+# 2. open the exported run (GUI repository launcher)
+./gui/scripts/run_gui.sh --run result/naval/IN_NETWORK/optimal
+
+# or open the TLE base scene with every satellite in data/tle_data.txt
+./gui/scripts/run_gui.sh
+```
+
+The export writes three files next to the normal results:
+
+| File | Content |
+|---|---|
+| `gui_state.csv` | per-satellite CPU/NET queues, service, completions and energy every 0.5 s |
+| `gui_links.csv` | one row per real `EdgeServer.transmit_task` forward (ISL or downlink) |
+| `gui_run.json` | run metadata: config, duration, capacities, sampling interval |
+
+`--trace-jsonl` is optional and adds `tasks.jsonl` with native `spawn`,
+`hop_start`, `hop_end`, `compute`, `deliver`, `complete` and `fail` events.
+When `tasks.jsonl` sits in the run directory, `run_gui.sh --run` picks it up
+automatically.
+
+With no arguments, `run_gui.sh` generates the TLE base scene from
+`data/tle_data.txt` (about 30 s, cached under `~/.cache/secgui/base`) and opens
+it with the orbit camera. Use `--empty` for the import panel or `--run <dir>`
+for a telemetry run.
+
+`run_gui.sh --run` converts these files into a cached scene (v2) and opens it;
+the first launch takes about 20 s, later launches reuse the cache. The GUI
+shows a load heatmap (`max(CPU, NET)`), link traffic colors, moving waves for
+active forwards, HUD summaries and per-satellite telemetry. Scenes v1 without
+telemetry remain supported.
+
+Build instructions and the full command reference are in the
+[GUI README](https://github.com/HashtagViinz/SECMotionModel-GUI#build) and
+[`docs/commands.md`](https://github.com/HashtagViinz/SECMotionModel-GUI/blob/v0.2.0/docs/commands.md).
+The v0.2 results and evidence are documented in
+[`docs/REPORT-live-traffic.md`](https://github.com/HashtagViinz/SECMotionModel-GUI/blob/v0.2.0/docs/REPORT-live-traffic.md).
+Prebuilt Linux AppImage and Windows exe:
+[release v0.2.0](https://github.com/HashtagViinz/SECMotionModel-GUI/releases/tag/v0.2.0).
+
+Currently only `naval_main.py` exposes `--gui-export`; `main.py` still produces
+the terrestrial `simulation_dataset.json` only.
+
+---
+
+## ⚙️ Configuration
+
+Main parameters in `config/config.json5`:
+
+| Parameter | Meaning |
+|---|---|
+| `simulation_duration` | Simulated time in seconds. |
+| `seed` | Deterministic seed for Python/NumPy random generators. |
+| `AP_selection` | Access Point policy: `base` or `optimal`. |
+| `SearchNode` | Server selection: `ERT` (heuristic) or `ILP`. |
+| `Routing_algorithm` | Enable `BATMAN`, `GREEDY`, or `DSR`. |
+| `request_distribution.distribution` | Scenario label: `DTS-base`, `DTS-APopt`, `OrbitAware`, `ILP`. |
+| `initial_energy` | Per-satellite energy budget in joules. |
+| `deadline` | Relative deadline multiplier (`delta_D`). |
+| `Phi_max` / `Phi_buffer` | Visibility elevation threshold and buffer zone. |
+| `Laser_Communication_Range` | Maximum ISL distance in km. |
+| `Interval_between_Configurations_in_seconds` | Topology refresh interval. |
+
+Task size distributions and probabilities are defined in `config/img_resolution.json5`.
 
 ---
 
 ## 📊 Results and Analysis
 
-Simulation results are automatically saved in the `result/` directory as CSV files. These files contain detailed logs of:
-- Task execution times, queue times, and total latencies.
-- Energy consumption tracking of Edge Servers.
-- Success/failure rates of task offloading based on deadlines.
+Results are saved in `result/` as CSV files:
 
-You can use the scripts provided in the `Plotters/` directory to parse and visualize the results.
+- task status, queue times, routing hops and latencies;
+- energy consumption per task/server;
+- success/failure/rejection reasons;
+- generated-task datasets and optional queue-monitoring snapshots.
+
+The naval report `relazione_latex/relazione.pdf` compares `IN_NETWORK` and `TO_OBSERVER` over 300 s and 150 configurations. Reference values:
+
+| Metric | `IN_NETWORK` | `TO_OBSERVER` |
+|---|---|---|
+| Completed tasks | 524 (99.62%) | 567 round-trip (97.26%) |
+| Average hops | 1.83 | 10.88 |
+| Average latency / RTT | 1.064 s | 8.265 s |
+
+---
+
+## 🧪 Testing
+
+The previous automated test suite has been removed. `Test/` currently contains only design notes; a new testing strategy is being studied separately.

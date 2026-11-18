@@ -6,6 +6,7 @@ import simpy
 from utils import colorize, saveInfoInFile, transmission_failure_probability
 from routing.ogm import Ogm
 from Observer import Observer
+from BaseTerminal import BaseTerminal
 from topology.core import ts, get_orbit_proximity
 from topology.core import loadConfiguration
 import threading
@@ -67,8 +68,8 @@ def manage_ogm_test(ogm_map: list, t: type) -> dict:
                     node.ogm_table[ogm.originator][ogm.sender] = 0
                 node.ogm_table[ogm.originator][ogm.sender] += 1
                 
-            if type(node) == Observer:
-                for ap in globals.global_access_point:
+            if isinstance(node, BaseTerminal):
+                for ap in node.get_access_points():
                     ap.OGMs_NP.append(ogm.clone_for_forwarding(node.name))
             else:
                 for neighbor in node.neighbors.keys():
@@ -125,12 +126,11 @@ def distribute_ogm(env: type, data_configuration: dict, config_riempimento: int)
         else:
             print(f"--- Loading configuration index {globals.config_index}")
 
-        new_edge_servers, new_global_access_point = loadConfiguration(
+        new_edge_servers = loadConfiguration(
             env, data_configuration, OGMs_table
         )
 
         # ! Sincronizzato intrinsecamente da SimPy
-        globals.global_access_point = new_global_access_point
         globals.edge_servers = new_edge_servers
 
         with globals.lock_access_edge_servers_topology:
