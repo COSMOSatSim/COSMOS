@@ -1,7 +1,29 @@
 import csv
 import json5
 import os
+import subprocess
 import sys
+
+# GUI export options are parsed before importing the simulator modules:
+# globals.py reads sys.argv[1] as the configuration path, so the flags must
+# not be left in argv.
+def _take_option(name):
+    if name not in sys.argv:
+        return None
+    index = sys.argv.index(name)
+    value = None
+    if index + 1 < len(sys.argv) and not sys.argv[index + 1].startswith("-"):
+        value = sys.argv[index + 1]
+        del sys.argv[index:index + 2]
+    else:
+        del sys.argv[index]
+    return value
+
+GUI_EXPORT = "--gui-export" in sys.argv
+if GUI_EXPORT:
+    sys.argv.remove("--gui-export")
+GUI_OUT = _take_option("--gui-out")
+
 import simpy
 import json
 from EdgeServer import build_task_csv_path
@@ -325,6 +347,47 @@ if __name__ == "__main__":
         with open(output_path_monitor, "w") as f:
             json.dump(simulation_dataset, f, indent=4)
         print("\nDataset dello stato della simulazione salvato in 'simulation_dataset.json'")
+
+    # Descrive la run per l'exporter GUI. Il file resta accanto ai risultati e
+    # punta alla configurazione topologica gia' usata dalla simulazione.
+    try:
+        gui_mode = get_global_mode()
+        gui_meta = {
+            "version": 1,
+            "source": "SECMotionModel main.py",
+            "name": f"Terrestrial / {gui_mode.value}",
+            "t0": globals.data_configurations.get("t0"),
+            "duration_s": float(config.get("simulation_duration", 0.0)),
+            "interval_s": float(config.get("Interval_between_Configurations_in_seconds", 2)),
+            "sample_interval_s": 2.0,
+            "config": f"data/configurations_AP_{gui_mode}.json",
+            "seed": config.get("seed"),
+            "cpu_capacity": config.get("cpu_capacity_queue", 5),
+            "net_capacity": config.get("net_capacity_queue", 5),
+        }
+        if ENABLE_MONITORING:
+            gui_meta["dataset"] = "simulation_dataset.json"
+        gui_run_path = os.path.join(base_dir, "gui_run.json")
+        with open(gui_run_path, "w", encoding="utf-8") as f:
+            json.dump(gui_meta, f, indent=2)
+        print(f"[INFO] GUI run descriptor written to: {gui_run_path}")
+    except Exception as e:
+        print(f"[WARN] Could not write the GUI run descriptor: {e}")
+
+    if GUI_EXPORT:
+        gui_out = GUI_OUT or os.path.join(base_dir, "gui_scene")
+        exporter = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "tools", "export_gui_scene.py")
+        print(f"[INFO] Exporting GUI simulation to: {gui_out}")
+        try:
+            subprocess.run(
+                [sys.executable, exporter, "--run-dir", base_dir, "--out", gui_out],
+                check=True,
+            )
+            print("[INFO] GUI simulation file: "
+                  + os.path.join(gui_out, "simulation.secsim"))
+        except Exception as e:
+            print(f"[ERROR] GUI export failed: {e}")
 
     # Stampa il riassunto dei task usando la funzione dell'Observer
     globals.observer.print_task_summary()

@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
 """
-Export SECMotionModel configurations to the SECMotionModel-GUI scene format
-v1.
+Export SECMotionModel configurations or run artifacts to the
+SECMotionModel-GUI scene format.
 
-The GUI never re-implements orbital mechanics: this exporter converts the
+This is the only bridge between the simulator and the GUI. It converts the
 Skyfield positions computed by the simulator into Earth-fixed ECEF/ITRS
-kilometres and writes a directory the GUI can load directly. Terrestrial
-configurations use the observer position as the single terminal marker;
-extended configurations may provide a per-step ``vessel_position``.
+kilometres and writes a directory plus a single ``simulation.secsim``
+descriptor. The GUI binary reads that descriptor and never runs Python or
+looks for this repository.
+
+Terrestrial configurations use the observer position as the single terminal
+marker; extended configurations may provide a per-step ``vessel_position``.
+``--run-dir`` reads ``gui_run.json`` and optional ``gui_state.csv``,
+``gui_links.csv``, ``tasks.jsonl`` and ``simulation_dataset.json``. This lets
+``main.py`` and extensions feed the same exporter without changing the GUI.
 
 Output layout
 -------------
 out/
-  manifest.json       scene manifest (schema/scene-v1.schema.json)
-  frames/000000.json  one frame per configuration (schema/frame-v1.schema.json)
-  tasks.jsonl         optional task trace (schema/tasks-v1.schema.json)
+  manifest.json          scene manifest, v1 or v2
+  simulation.secsim      single-file descriptor to open in the GUI
+  frames/000000.json     one frame per configuration
+  tasks.jsonl            optional task trace
+  loads.jsonl            optional v2 per-satellite load
+  traffic.jsonl          optional v2 forward events
 
 Usage
 -----
@@ -22,6 +31,10 @@ python tools/export_gui_scene.py \
     --config data/configurations_AP_optimal.json \
     --out /tmp/secgui/terrestrial \
     --start 0 --end 150
+
+python tools/export_gui_scene.py \
+    --run-dir result/.../r_algo_GREEDY \
+    --out /tmp/secgui/run
 """
 
 from __future__ import annotations
@@ -37,6 +50,9 @@ from typing import Any
 from skyfield.api import EarthSatellite, load, wgs84
 from skyfield.framelib import itrs
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from scene_bundle import write_bundle  # noqa: E402
+
 EARTH_RADIUS_KM = 6371.0
 DEFAULT_OBSERVER = {"name": "Roma", "lat": 41.8967, "lon": 12.4822}
 TASK_EVENTS = {"spawn", "hop_start", "hop_end", "compute", "deliver", "complete", "fail"}
@@ -50,10 +66,23 @@ def parse_arguments() -> argparse.Namespace:
                         help="configurations JSON (terrestrial or extended)")
     parser.add_argument("--out", required=True, help="output scene directory")
     parser.add_argument("--trace", default=None, help="task trace JSONL produced by the simulation")
-    parser.add_argument("--run-dir", default=None,
-                        help="simulation run directory with gui_run.json, gui_state.csv and gui_links.csv")
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="simulation run directory with gui_run.json and optional telemetry",
+    )
     parser.add_argument("--state", default=None, help="gui_state.csv (overrides --run-dir)")
     parser.add_argument("--links", default=None, help="gui_links.csv (overrides --run-dir)")
+    parser.add_argument(
+        "--dataset",
+        default=None,
+        help="simulation_dataset.json with per-satellite queue/energy snapshots",
+    )
+    parser.add_argument(
+        "--bundle",
+        default=None,
+        help="write a single .secsim descriptor (default: <out>/simulation.secsim)",
+    )
     parser.add_argument(
         "--core-config",
         default="config/config.json5",
@@ -126,6 +155,54 @@ def load_state_csv(path: Path) -> list[tuple[float, dict[str, dict[str, Any]]]]:
     return sorted(samples.items())
 
 
+def load_dataset_samples(path: Path) -> list[tuple[float, dict[str, dict[str, Any]]]]:
+    """Load ``simulation_dataset.json`` snapshots as GUI load samples.
+
+    The terrestrial ``main.py`` does not write ``gui_state.csv``; when queue
+    monitoring is enabled it writes one snapshot every sampling interval with
+    the same queue/energy fields. This adapter lets the GUI show that data
+    without changing the simulator.
+    """
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    samples: dict[float, dict[str, dict[str, Any]]] = {}
+    for snapshot in data.get("snapshots", []):
+        try:
+            time_s = float(snapshot.get("time", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        metrics_by_name: dict[str, dict[str, Any]] = {}
+        for satellite in snapshot.get("satellites", []):
+
+            def value(*keys: str, default: Any = 0) -> Any:
+                for key in keys:
+                    if satellite.get(key) is not None:
+                        return satellite[key]
+                return default
+
+            name = value("satellite", "id", "name", default="")
+            if not name:
+                continue
+            try:
+                metrics_by_name[name] = {
+                    "cpu_queue": int(value("queue_cpu_len", "cpu_queue") or 0),
+                    "cpu_service": int(value("cpu_service_len", "cpu_service") or 0),
+                    "net_queue": int(value("queue_net_len", "net_queue") or 0),
+                    "net_service": int(value("net_service_len", "net_service") or 0),
+                    "completed": int(value("completed_tasks_count", "completed") or 0),
+                    "energy_j": float(value("energy_budget_J", "energy_j") or 0.0),
+                    "energy_reserved_j": float(
+                        value("energy_reserved_J", "energy_reserved_j") or 0.0),
+                }
+            except (TypeError, ValueError):
+                continue
+        if metrics_by_name:
+            samples[time_s] = metrics_by_name
+    return sorted(samples.items())
+
+
 def load_links_csv(path: Path) -> list[dict[str, Any]]:
     """Load gui_links.csv into normalized traffic events."""
     if not path.exists():
@@ -155,14 +232,26 @@ def load_links_csv(path: Path) -> list[dict[str, Any]]:
     return events
 
 
+def step_satellites(step: dict[str, Any]) -> list[dict[str, Any]]:
+    return step.get("configuration") or step.get("satellites") or []
+
+
+def satellite_name(satellite: dict[str, Any]) -> str:
+    return satellite.get("satellite") or satellite.get("name") or satellite.get("id") or ""
+
+
+def satellite_tle(satellite: dict[str, Any]) -> list[dict[str, Any]]:
+    return satellite.get("TLE-DATA") or satellite.get("tle") or satellite.get("tle_data") or []
+
+
 def build_satellite_cache(configurations: list[dict[str, Any]], timescale):
     cache: dict[str, EarthSatellite] = {}
     for step in configurations:
-        for satellite in step.get("configuration", []):
-            name = satellite.get("satellite")
+        for satellite in step_satellites(step):
+            name = satellite_name(satellite)
             if not name or name in cache:
                 continue
-            tle = satellite.get("TLE-DATA") or []
+            tle = satellite_tle(satellite)
             if not tle:
                 continue
             entry = tle[0]
@@ -172,7 +261,7 @@ def build_satellite_cache(configurations: list[dict[str, Any]], timescale):
 
 def access_point_map(step: dict[str, Any]) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
-    for terminal, names in (step.get("access_points") or {}).items():
+    for terminal, names in (step.get("access_points") or step.get("aps") or {}).items():
         for name in names or []:
             result.setdefault(name, []).append(terminal)
     return result
@@ -198,8 +287,8 @@ def frame_document(
     observer = wgs84.latlon(observer_lat, observer_lon)
 
     satellites: list[dict[str, Any]] = []
-    for satellite in step.get("configuration", []):
-        name = satellite.get("satellite")
+    for satellite in step_satellites(step):
+        name = satellite_name(satellite)
         cached = satellite_cache.get(name)
         if cached is None:
             continue
@@ -301,6 +390,8 @@ def main() -> int:
             args.links = str(run_dir / run_meta.get("links", "gui_links.csv"))
         if args.config is None:
             args.config = run_meta.get("config")
+        if args.dataset is None and run_meta.get("dataset"):
+            args.dataset = str(run_dir / run_meta["dataset"])
         if args.trace is None:
             candidate = run_dir / "tasks.jsonl"
             if candidate.exists():
@@ -309,26 +400,43 @@ def main() -> int:
     if not args.config:
         raise SystemExit("--config is required (or use --run-dir with gui_run.json)")
     config_path = Path(args.config)
+    if not config_path.is_absolute() and not config_path.exists():
+        # A gui_run.json may store the topology path relative to the core root.
+        fallback = Path(__file__).resolve().parent.parent / config_path
+        if fallback.exists():
+            config_path = fallback
     if not config_path.exists():
         raise SystemExit(f"configuration not found: {config_path}")
 
     state_samples = load_state_csv(Path(args.state)) if args.state else []
+    if not state_samples:
+        state_samples = load_dataset_samples(Path(args.dataset)) if args.dataset else []
     traffic_events = load_links_csv(Path(args.links)) if args.links else []
 
     with config_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
 
-    configurations = data.get("configurations") or []
+    configurations = (
+        data.get("configurations")
+        or data.get("steps")
+        or data.get("frames")
+        or []
+    )
     if not configurations:
         raise SystemExit(f"no configurations found in {config_path}")
 
-    interval = float(data.get("interval", 2))
+    interval = float(data.get("interval", data.get("interval_s", 2)))
     start = max(0, args.start)
     end = len(configurations) if args.end is None else min(len(configurations), args.end)
     if end <= start:
         raise SystemExit(f"empty frame range [{start}, {end})")
 
-    core_config = load_json5(Path(args.core_config))
+    core_config_path = Path(args.core_config)
+    if not core_config_path.is_absolute() and not core_config_path.exists():
+        fallback = Path(__file__).resolve().parent.parent / core_config_path
+        if fallback.exists():
+            core_config_path = fallback
+    core_config = load_json5(core_config_path)
     phi_max = float(core_config.get("Phi_max", 40.0))
     phi_buffer = float(core_config.get("Phi_buffer", 15.0))
     simulation_location = core_config.get("simulation_location", "Roma")
@@ -448,6 +556,7 @@ def main() -> int:
             "run_dir": str(run_dir) if run_dir is not None else None,
             "state": args.state,
             "links": args.links,
+            "dataset": args.dataset,
         },
         "t0": configurations[start].get("time"),
         "interval_s": interval,
@@ -487,10 +596,33 @@ def main() -> int:
             "tasks": False,
         }
 
-    with (output_dir / "manifest.json").open("w", encoding="utf-8") as handle:
+    manifest_path = output_dir / "manifest.json"
+    with manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
 
+    bundle_path = Path(args.bundle) if args.bundle else output_dir / "simulation.secsim"
+    bundle_name = (
+        run_meta.get("name")
+        or run_meta.get("use_case")
+        or run_meta.get("mode")
+        or config_path.stem
+    )
+    write_bundle(
+        bundle_path,
+        manifest_path,
+        tasks=output_dir / tasks_name if tasks_name else None,
+        loads=output_dir / loads_name if loads_name else None,
+        traffic=output_dir / traffic_name if traffic_name else None,
+        name=str(bundle_name),
+        source={
+            "config": str(config_path),
+            "run_dir": str(run_dir) if run_dir is not None else None,
+            "dataset": args.dataset,
+        },
+    )
+
     print(f"scene written to {output_dir} ({exported} frames, {len(satellite_cache)} satellites)")
+    print(f"simulation file written to {bundle_path}")
     return 0
 
 

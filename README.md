@@ -122,33 +122,59 @@ python Plotters/dome_plotter.py
 The native C++20/WebGPU visualizer lives in
 [SECMotionModel-GUI](https://github.com/HashtagViinz/SECMotionModel-GUI) and is
 included as the `gui/` submodule. It renders satellite motion, ISL links and
-visibility domes; telemetry runs (scene v2) produced by extensions remain
-supported.
+visibility domes.
 
-The GUI is optional: the simulator does not import it.
+The GUI is a standalone reader: it never runs Python, searches for this
+repository or knows the simulation internals. The core owns the exporter; the
+GUI only consumes the versioned scene format plus a single `.secsim`
+descriptor.
 
 ```bash
-# 1. open the TLE base scene with every satellite in data/tle_data.txt
-./gui/scripts/run_gui.sh
+# normal terrestrial run: write the GUI scene at the end
+python main.py --gui-export
+./gui/scripts/run_gui.sh result/.../r_algo_GREEDY/gui_scene/simulation.secsim
 
-# 2. export and open the terrestrial configurations
-./gui/scripts/run_gui.sh --config data/configurations_AP_optimal.json
+# an existing run, without re-running the simulator
+python3 tools/export_gui_scene.py \
+  --run-dir result/.../r_algo_GREEDY \
+  --out /tmp/secgui/run
+./gui/scripts/run_gui.sh /tmp/secgui/run/simulation.secsim
 
-# or export explicitly and open the resulting scene
+# export a topology configuration directly
 python3 tools/export_gui_scene.py \
   --config data/configurations_AP_optimal.json \
   --out /tmp/secgui/terrestrial
-./gui/scripts/run_gui.sh /tmp/secgui/terrestrial/manifest.json
+./gui/scripts/run_gui.sh /tmp/secgui/terrestrial/simulation.secsim
+
+# or let the core wrapper do export + launch in one step
+./tools/run_gui.sh --config data/configurations_AP_optimal.json
 ```
 
-The exporter writes a scene directory with `manifest.json` and one frame per
-configuration step: satellite positions in Earth-fixed ECEF coordinates,
-access-point flags, elevation and ISL neighbours. An optional task trace can be
-attached with `--trace path/to/tasks.jsonl`.
+The exporter writes a scene directory with `manifest.json`, one frame per
+configuration step, optional telemetry sidecars and a `simulation.secsim`
+descriptor. The descriptor is the single file to open: it contains the paths of
+the manifest and the optional `tasks.jsonl`, `loads.jsonl` and `traffic.jsonl`
+files. Use `--bundle PATH` to place it elsewhere.
 
-With no arguments, `run_gui.sh` generates the TLE base scene from
-`data/tle_data.txt` (about 30 s, cached under `~/.cache/secgui/base`) and opens
-it with the orbit camera. Use `--empty` for the import panel.
+A normal `main.py` run writes `gui_run.json` next to its results; with
+`--gui-export` it also invokes the exporter and leaves the ready-to-open scene
+in `<result>/gui_scene/` (override with `--gui-out DIR`). When queue monitoring is enabled, the exporter reads
+`simulation_dataset.json` for per-satellite load samples. An optional task
+trace can be attached with `--trace path/to/tasks.jsonl`.
+
+For a new or structurally different simulation, write the small GUI scene
+contract (`manifest.json` + `frames/%06d.json` + optional sidecars, documented
+in `gui/docs/scene-format.md`) and package it:
+
+```bash
+python3 tools/package_gui_scene.py \
+  --scene /path/to/gui_scene \
+  --out /path/to/simulation.secsim
+```
+
+With no arguments, `tools/run_gui.sh` exports the cached TLE base scene if
+needed and opens it. `gui/scripts/run_gui.sh` is standalone: it only opens
+exported files. Use `--empty` for the import panel.
 
 Build instructions and the full command reference are in the
 [GUI README](https://github.com/HashtagViinz/SECMotionModel-GUI#build) and

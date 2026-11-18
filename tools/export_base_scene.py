@@ -4,7 +4,8 @@
 The scene contains every satellite in the TLE catalog, propagated to
 Earth-fixed ECEF/ITRS positions over a short time window. It has no tasks,
 load samples or traffic events: it is the neutral "constellation around the
-globe" scene used as the GUI starting point.
+globe" scene used as the GUI starting point. The exporter also writes
+``simulation.secsim``; open that single file in the GUI.
 
 Usage:
     python3 tools/export_base_scene.py \
@@ -18,12 +19,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from skyfield.api import EarthSatellite, load, wgs84
 from skyfield.framelib import itrs
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from scene_bundle import write_bundle  # noqa: E402
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -40,6 +45,11 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--terminal-name", default="OBS")
     parser.add_argument("--terminal-lat", type=float, default=41.9028)
     parser.add_argument("--terminal-lon", type=float, default=12.4964)
+    parser.add_argument(
+        "--bundle",
+        default=None,
+        help="write a single .secsim descriptor (default: <out>/simulation.secsim)",
+    )
     return parser.parse_args()
 
 
@@ -182,10 +192,19 @@ def main() -> int:
         },
         "frames": {"count": frame_count, "pattern": "frames/%06d.json"},
     }
-    with (output / "manifest.json").open("w", encoding="utf-8") as handle:
+    manifest_path = output / "manifest.json"
+    with manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
         handle.write("\n")
+    bundle_path = Path(args.bundle) if args.bundle else output / "simulation.secsim"
+    write_bundle(
+        bundle_path,
+        manifest_path,
+        name="TLE base scene",
+        source={"tle": str(tle_path), "satellites": len(satellites)},
+    )
     print(f"base scene written to {output} ({frame_count} frames, {len(satellites)} satellites)")
+    print(f"simulation file written to {bundle_path}")
     return 0
 
 
