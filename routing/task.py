@@ -13,7 +13,7 @@ import globals
 import json5, csv
 import os
 from pprint import pprint
-from typing import Optional
+from typing import Any, Optional
 
 from utils import colorize, _win_longpath
 from BaseTerminal import BaseTerminal
